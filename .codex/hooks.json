@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run C:\\Users\\chrfav01\\benchresults\\humanize_tests\\kda\\.agents\\skills\\humanize\\run-humanize.py hooks/loop-codex-stop-hook.sh",
+            "commandWindows": "uv run C:\\Users\\chrfav01\\benchresults\\humanize_tests\\kda\\.agents\\skills\\humanize\\run-humanize.py hooks/loop-codex-stop-hook.sh",
+            "timeout": 7200,
+            "statusMessage": "Humanize RLCR independent review"
+          }
+        ]
+      }
+    ]
+  }
+}
