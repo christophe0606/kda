@@ -1,2 +1,10 @@
 /build/
 /.humanize/
+/out/
+*.cbuild-idx.yml
+*.cbuild-pack.yml
+*.cbuild-set.yml
+*.cbuild.yml
+*.cbuild-gen-idx.yml
+/RTE/_*/
+/M55_HE/RTE/_*/

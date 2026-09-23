@@ -103,7 +103,60 @@ if [[ -z "$(printf '%s' "$BITLESSON_CONTENT" | tr -d ' \t\n\r')" ]]; then
     exit 1
 fi
 
-if ! printf '%s\n' "$BITLESSON_CONTENT" | grep -Eq '^[[:space:]]*##[[:space:]]+Lesson:'; then
+# Only recorded entries count. Ignore Markdown examples and HTML comments;
+# remember the actual IDs so the model cannot select invented lessons.
+RECORDED_LESSON_IDS="$(printf '%s\n' "$BITLESSON_CONTENT" | awk '
+    {
+        sub(/\r$/, "")
+        line = $0
+        if (fence != "") {
+            close_line = line
+            sub(/^[ ]*/, "", close_line)
+            run = close_line
+            sub(/[^`~].*$/, "", run)
+            tail = substr(close_line, length(run) + 1)
+            if (run ~ ("^" fence "+$") && length(run) >= fence_length && tail ~ /^[ \t]*$/)
+                fence = ""
+            next
+        }
+        # Remove comments, including comments spanning multiple lines.
+        visible = ""
+        while (length(line)) {
+            if (comment) {
+                pos = index(line, "-->")
+                if (!pos) { line = ""; break }
+                line = substr(line, pos + 3)
+                comment = 0
+            } else {
+                pos = index(line, "<!--")
+                if (!pos) { visible = visible line; break }
+                visible = visible substr(line, 1, pos - 1)
+                line = substr(line, pos + 4)
+                comment = 1
+            }
+        }
+        line = visible
+        if (line ~ /^[ ]*(```+|~~~+)/) {
+            sub(/^[ ]*/, "", line)
+            fence = substr(line, 1, 1)
+            sub(/[^`~].*$/, "", line)
+            fence_length = length(line)
+            next
+        }
+        if (line ~ /^[[:space:]]*##[[:space:]]+Lesson:/) {
+            in_lesson = 1
+            next
+        }
+        if (line ~ /^[[:space:]]*#{1,2}[[:space:]]/) in_lesson = 0
+        if (in_lesson && line ~ /^[[:space:]]*Lesson ID:[[:space:]]*/) {
+            sub(/^[[:space:]]*Lesson ID:[[:space:]]*/, "", line)
+            sub(/[[:space:]]*$/, "", line)
+            if (line ~ /^[[:alnum:]][[:alnum:]_.-]*$/ && line != "NONE") print line
+        }
+    }
+')"
+
+if [[ -z "$RECORDED_LESSON_IDS" ]]; then
     printf 'LESSON_IDS: NONE\n'
     printf 'RATIONALE: The BitLesson file has no recorded lessons yet.\n'
     exit 0
@@ -205,8 +258,20 @@ run_selector() {
             "-c" "model_reasoning_effort=low"
             "-C" "$CODEX_PROJECT_ROOT"
         )
-        printf '%s' "$PROMPT" | run_with_timeout "$SELECTOR_TIMEOUT" codex exec "${codex_exec_args[@]}" -
-        return $?
+        # Codex diagnostics may echo the prompt, including its output template.
+        # Parse only the final assistant message, never the terminal transcript.
+        local message_file
+        message_file="$(mktemp)" || return 1
+        trap 'rm -f -- "$message_file"' EXIT
+        local status=0
+        printf '%s' "$PROMPT" | run_with_timeout "$SELECTOR_TIMEOUT" codex exec "${codex_exec_args[@]}" \
+            --output-last-message "$message_file" - >&2 || status=$?
+        if [[ $status -eq 0 ]]; then
+            cat "$message_file" || status=$?
+        fi
+        rm -f -- "$message_file"
+        trap - EXIT
+        return "$status"
     fi
 
     if [[ "$provider" == "claude" ]]; then
@@ -219,7 +284,7 @@ run_selector() {
 }
 
 CODEX_EXIT_CODE=0
-RAW_OUTPUT="$(run_selector "$BITLESSON_PROVIDER" "$BITLESSON_MODEL" 2>&1)" || CODEX_EXIT_CODE=$?
+RAW_OUTPUT="$(run_selector "$BITLESSON_PROVIDER" "$BITLESSON_MODEL")" || CODEX_EXIT_CODE=$?
 
 if [[ $CODEX_EXIT_CODE -eq 124 ]]; then
     echo "Error: BitLesson selector timed out after ${SELECTOR_TIMEOUT} seconds" >&2
@@ -236,28 +301,34 @@ fi
 # Enforce Stable Output Format
 # ========================================
 
-LESSON_IDS_VALUE="$(
-    printf '%s\n' "$RAW_OUTPUT" \
-        | sed -n 's/^[[:space:]]*LESSON_IDS:[[:space:]]*//p' \
-        | head -n 1 \
-        | tr -d '\r' \
-        | sed 's/[[:space:]]*$//'
-)"
-
-RATIONALE_VALUE="$(
-    printf '%s\n' "$RAW_OUTPUT" \
-        | sed -n 's/^[[:space:]]*RATIONALE:[[:space:]]*//p' \
-        | head -n 1 \
-        | tr -d '\r' \
-        | sed 's/[[:space:]]*$//'
-)"
-
-if [[ -z "$LESSON_IDS_VALUE" || -z "$RATIONALE_VALUE" ]]; then
-    echo "Error: Unexpected selector output format (expected LESSON_IDS and RATIONALE lines)" >&2
-    echo "" >&2
-    echo "Raw output:" >&2
+invalid_output() {
+    echo "Error: Invalid selector response: $1" >&2
     printf '%s\n' "$RAW_OUTPUT" >&2
     exit 1
+}
+
+# Accept CRLF but require the two specified lines, in order, exactly once.
+RAW_OUTPUT="${RAW_OUTPUT//$'\r'/}"
+mapfile -t RESPONSE_LINES <<< "$RAW_OUTPUT"
+if [[ ${#RESPONSE_LINES[@]} -ne 2 || ${RESPONSE_LINES[0]} != 'LESSON_IDS: '* || ${RESPONSE_LINES[1]} != 'RATIONALE: '* ]]; then
+    invalid_output "expected exactly LESSON_IDS and RATIONALE lines"
+fi
+LESSON_IDS_VALUE="${RESPONSE_LINES[0]#LESSON_IDS: }"
+RATIONALE_VALUE="${RESPONSE_LINES[1]#RATIONALE: }"
+if [[ -z "${RATIONALE_VALUE//[[:space:]]/}" || "$RATIONALE_VALUE" == *'<one concise sentence>'* ]]; then
+    invalid_output "missing rationale or literal template placeholder"
+fi
+
+if [[ "$LESSON_IDS_VALUE" != NONE ]]; then
+    ID_LIST_PATTERN='^[[:alnum:]][[:alnum:]_.-]*(,[[:space:]]*[[:alnum:]][[:alnum:]_.-]*)*$'
+    [[ "$LESSON_IDS_VALUE" =~ $ID_LIST_PATTERN ]] || invalid_output "expected recorded lesson IDs or NONE"
+    IFS=',' read -r -a SELECTED_IDS <<< "$LESSON_IDS_VALUE"
+    for lesson_id in "${SELECTED_IDS[@]}"; do
+        lesson_id="${lesson_id//[[:space:]]/}"
+        if ! grep -Fxq -- "$lesson_id" <<< "$RECORDED_LESSON_IDS"; then
+            invalid_output "unknown lesson ID: $lesson_id"
+        fi
+    done
 fi
 
 printf 'LESSON_IDS: %s\n' "$LESSON_IDS_VALUE"

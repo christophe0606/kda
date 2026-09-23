@@ -1,0 +1,34 @@
+# Adapted from AlifSemiconductor::Ensemble@2.2.1, Boards/DevKit-e8/Layers/M55_HP.
+# Retain the pack's startup, memory configuration and UART stdout support.
+layer:
+  type: Board
+  description: DevKit-E8 M55_HP bare-metal UART stdout
+  for-board: Alif Semiconductor::DevKit-E8
+  for-device: Alif Semiconductor::AE822FA0E5597LS0:M55_HP
+  device: :M55_HP
+  processor:
+    trustzone: off
+
+  connections:
+    - connect: DevKit-E8 HP console
+      provides:
+        - STDOUT
+
+  packs:
+    - pack: AlifSemiconductor::Ensemble@2.2.1
+    - pack: ARM::CMSIS@6.3.0
+    - pack: ARM::CMSIS-Compiler@2.2.0
+
+  components:
+    - component: Device:Startup
+    - component: BSP:Board Config
+    - component: BSP:DevKit Config&DevKit-e8
+    - component: CMSIS:CORE
+    - component: CMSIS Driver:USART
+    - component: CMSIS-Compiler:CORE
+    - component: CMSIS-Compiler:STDOUT:Custom
+    - component: Device:SOC Peripherals:PINCONF
+    - component: Device:SOC Peripherals:MHU
+    - component: Services:Retarget IO:STDOUT
+    - component: Services:Secure Enclave:core&Source
+    - component: Services:Secure Enclave:Initialization Helper&Source

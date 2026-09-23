@@ -1,0 +1,18 @@
+project:
+  device: :M55_HE
+  language-C: c11
+
+  groups:
+    - group: Application
+      files:
+        - file: ./main.c
+
+  layers:
+    - layer: ../board/DevKit-E8/M55_HE/Board_HE.clayer.yml
+      type: Board
+
+  output:
+    type:
+      - elf
+      - hex
+      - map

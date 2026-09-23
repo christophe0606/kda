@@ -72,14 +72,14 @@ The RLCR (Ralph-Loop with Codex Review) loop has two phases:
 - AI works on the implementation plan
 - AI writes a summary of work completed
 - Codex reviews the summary for completeness and correctness
-- If issues found â†’ feedback loop continues
-- If Codex outputs "COMPLETE" â†’ enters Review Phase
+- If issues found → feedback loop continues
+- If Codex outputs "COMPLETE" → enters Review Phase
 
 **Phase 2: Code Review**
 - `codex review --base <branch>` checks code quality
 - Issues marked with `[P0-9]` severity markers
-- If issues found â†’ AI fixes them and continues
-- If no issues â†’ loop completes with Finalize Phase
+- If issues found → AI fixes them and continues
+- If no issues → loop completes with Finalize Phase
 - On a current Codex CLI with `hooks` enabled, Humanize installs a native `Stop` hook so exit gating runs automatically after the user trusts the hook
 
 ### 2. Generate Plan - Structured Plan from Draft
@@ -220,23 +220,23 @@ Humanize stores all data in `.humanize/`:
 
 ```
 .humanize/
-â”œâ”€â”€ rlcr/           # RLCR loop data
-â”‚   â””â”€â”€ <timestamp>/
-â”‚       â”œâ”€â”€ state.md
-â”‚       â”œâ”€â”€ goal-tracker.md
-â”‚       â”œâ”€â”€ round-N-summary.md
-â”‚       â”œâ”€â”€ round-N-review-result.md
-â”‚       â”œâ”€â”€ finalize-state.md
-â”‚       â”œâ”€â”€ finalize-summary.md
-â”‚       â”œâ”€â”€ methodology-analysis-state.md
-â”‚       â”œâ”€â”€ methodology-analysis-report.md
-â”‚       â”œâ”€â”€ methodology-analysis-done.md
-â”‚       â””â”€â”€ complete-state.md
-â””â”€â”€ skill/          # One-shot skill results
-    â””â”€â”€ <timestamp>/
-        â”œâ”€â”€ input.md
-        â”œâ”€â”€ output.md
-        â””â”€â”€ metadata.md
+├── rlcr/           # RLCR loop data
+│   └── <timestamp>/
+│       ├── state.md
+│       ├── goal-tracker.md
+│       ├── round-N-summary.md
+│       ├── round-N-review-result.md
+│       ├── finalize-state.md
+│       ├── finalize-summary.md
+│       ├── methodology-analysis-state.md
+│       ├── methodology-analysis-report.md
+│       ├── methodology-analysis-done.md
+│       └── complete-state.md
+└── skill/          # One-shot skill results
+    └── <timestamp>/
+        ├── input.md
+        ├── output.md
+        └── metadata.md
 ```
 
 ## Monitoring

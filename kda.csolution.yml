@@ -1,0 +1,48 @@
+# Copyright 2026 Arm Limited and/or its affiliates.
+# SPDX-License-Identifier: Apache-2.0
+solution:
+  created-for: CMSIS-Toolbox@2.14.1
+  cdefault:
+  compiler: AC6
+
+  packs:
+    - pack: AlifSemiconductor::Ensemble@2.2.1
+    - pack: ARM::CMSIS@6.3.0
+    - pack: ARM::CMSIS-Compiler@2.2.0
+
+  output-dirs:
+    tmpdir: build/cmsis/tmp
+
+  target-types:
+    - type: DevKit-E8
+      board: Alif Semiconductor::DevKit-E8
+      device: Alif Semiconductor::AE822FA0E5597LS0
+      target-set:
+        - set: Release
+          images:
+            - project-context: kda.Release
+            - project-context: M55_HE.Release
+          debugger:
+            name: ULINKplus@pyOCD
+            clock: 10000000
+            protocol: swd
+        - set: Debug
+          images:
+            - project-context: kda.Debug
+            - project-context: M55_HE.Debug
+          debugger:
+            name: ULINKplus@pyOCD
+            clock: 10000000
+            protocol: swd
+
+  build-types:
+    - type: Release
+      debug: off
+      optimize: balanced
+    - type: Debug
+      debug: on
+      optimize: none
+
+  projects:
+    - project: ./kda.cproject.yml
+    - project: ./M55_HE/M55_HE.cproject.yml

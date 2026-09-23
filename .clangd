@@ -1,0 +1,10 @@
+CompileFlags:
+  CompilationDatabase: c:\Users\chrfav01\benchresults\humanize_tests\kda\out\kda\DevKit-E8\Release
+
+---
+If:
+  PathMatch: .*\.(c|C|h)$
+CompileFlags:
+  Add:
+    - -include
+    - c:\Users\chrfav01\benchresults\humanize_tests\kda\out\kda\DevKit-E8\Release\compile_macros_c.h

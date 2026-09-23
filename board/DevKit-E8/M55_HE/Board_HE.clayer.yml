@@ -1,0 +1,18 @@
+# Adapted from AlifSemiconductor::Ensemble@2.2.1, Boards/DevKit-e8/Layers/M55_HE.
+# Retain startup and memory configuration; HE does not initialize peripherals.
+layer:
+  type: Board
+  description: DevKit-E8 M55_HE idle companion
+  for-board: Alif Semiconductor::DevKit-E8
+  for-device: Alif Semiconductor::AE822FA0E5597LS0:M55_HE
+  device: :M55_HE
+  processor:
+    trustzone: off
+
+  packs:
+    - pack: AlifSemiconductor::Ensemble@2.2.1
+    - pack: ARM::CMSIS@6.3.0
+
+  components:
+    - component: Device:Startup
+    - component: CMSIS:CORE

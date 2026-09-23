@@ -1,5 +1,22 @@
 # KDA: a minimal application for Humanize
 
+## Alif E8 demo
+
+Open `kda.csolution.yml` in VS Code's CMSIS Solution view and select
+`DevKit-E8@Release`. The solution uses Arm Compiler 6 and includes both M55
+cores: HP prints `Hello World!` once through UART4 stdout (115200, 8N1), then
+idles; HE only idles. The board layers are adapted from the Alif Ensemble
+2.2.1 pack; see `board/DevKit-E8/README.md`.
+
+Validate the solution, reload the VS Code window, and configure the debug probe
+before loading or debugging. Keep both Release images selected. The existing
+dual-core debug stubs do not need to be reinstalled for this setup. The manual
+HP launch retains automatic execution of both cores (`run: "all"`).
+
+The original CMake host application and its tests remain available; the host
+branch of `src/main.c` retains the personalized greeting described below.
+Humanize is optional and was not used for this board conversion.
+
 A portable C11 Hello World application for trying the existing Humanize skills.
 The application is the root project. Humanize supplies planning and independent
 review. No NVIDIA dependencies, embedded knowledge base, or custom flow is included.
