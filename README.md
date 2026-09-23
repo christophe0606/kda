@@ -60,7 +60,7 @@ the installation target; the application's build does not install skills.
 The expected local installation includes:
 
 ```text
-.agents/skills/humanize/            shared runtime and Windows launcher
+.agents/skills/humanize/            shared runtime and native Windows launcher
 .agents/skills/humanize-gen-plan/   planning skill
 .agents/skills/humanize-rlcr/       implementation/review skill
 .codex/hooks.json                  review Stop hook
@@ -84,6 +84,14 @@ for Humanize's shell parsing. `windows-bin` contains only the Humanize-specific
 Git Bash and Codex's hook environment. Reinstalling the skills may overwrite these
 local runtime customizations.
 
+Never use WSL. The Windows hook and installed skills enter through
+`.agents/skills/humanize/run-humanize.py`, normally with `uv run`. This launcher
+selects Git for Windows by its installation path and invokes the existing Bash
+runtime without resolving bare `bash` from `PATH`. If Git is installed elsewhere,
+set `HUMANIZE_GIT_BASH` to its `bash.exe`; the launcher checks that it belongs to a
+Git installation. Without uv, run the same launcher with native `python3` or
+`python`. The hook installer selects the available Python command when installed.
+
 ## 3. Start Codex CLI and verify the integration
 
 In PowerShell, from this project:
@@ -105,10 +113,28 @@ Start a fresh session after installation if the skills have not appeared.
 
 ## 4. Generate the plan
 
+The model already running the current Codex task is the planner; no model switch
+is required. Configure the independent reviewer in `.humanize/config.json`, for
+example:
+
+```json
+{
+  "codex_model": "gpt-5.6-luna",
+  "codex_effort": "high",
+  "gen_plan_mode": "discussion"
+}
+```
+
+Merge these settings with any existing configuration. They select only the
+reviewer, not the planner. In discussion mode it calls the reviewer for first-pass
+analysis, then performs up to three candidate review/revision rounds. The final
+plan records actual models, agreements, disagreements, and review evidence under
+`.humanize/skill/`. A Codex-only setup still uses two independent model processes.
+
 Enter this in the **Codex conversation**, not PowerShell:
 
 ```text
-$humanize-gen-plan --input docs/draft.md --output docs/plan.md
+$humanize-gen-plan --input docs/draft.md --output docs/plan.md --discussion
 ```
 
 This should generate a plan, not implement the change. Read `docs/plan.md` and

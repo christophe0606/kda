@@ -31,4 +31,8 @@ ctest --test-dir build -C Release --output-on-failure
 - During an active loop, follow the installed Humanize skill and its generated
   round instructions. Do not replace its review hook with a custom loop.
 - Keep Humanize state and machine-local skill installations out of Git.
+- Never use WSL. On Windows, run Humanize through
+  `.agents/skills/humanize/run-humanize.py` with `uv run` (or native Python).
+  The launcher selects Git for Windows explicitly; never invoke bare `bash`
+  from the Windows environment.
 - No embedded knowledge-base skill is included in this starter.
