@@ -15,9 +15,12 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    add_test(NAME hello_default
-        COMMAND "${CMAKE_COMMAND}"
-            "-DHELLO_EXE=$<TARGET_FILE:hello>"
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_output.cmake"
-    )
+    foreach(case IN ITEMS default name special_name empty_name two_names three_names)
+        add_test(NAME hello_${case}
+            COMMAND "${CMAKE_COMMAND}"
+                "-DHELLO_EXE=$<TARGET_FILE:hello>"
+                "-DHELLO_CASE=${case}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_output.cmake"
+        )
+    endforeach()
 endif()

@@ -4,8 +4,8 @@ A portable C11 Hello World application for trying the existing Humanize skills.
 The application is the root project. Humanize supplies planning and independent
 review. No NVIDIA dependencies, embedded knowledge base, or custom flow is included.
 
-The initial application intentionally does not implement `docs/draft.md`. That
-small change is the first job you give to Humanize.
+The application implements the personalized greeting described in `docs/draft.md`.
+It accepts one optional name and rejects excess arguments.
 
 ## Recommended starting point: Codex CLI
 
@@ -39,6 +39,16 @@ cross-compiler is needed. With the Visual Studio generator, run:
 
 It prints `Hello, embedded!`. With a single-configuration generator, the executable
 is usually `build/hello.exe` on Windows or `build/hello` on Unix.
+
+Pass one name to personalize the greeting:
+
+```powershell
+.\build\Release\hello.exe 'Ada Lovelace 100% %s%n'
+```
+
+This prints `Hello, Ada Lovelace 100% %s%n!`. Names are used literally; an explicit
+empty argument produces `Hello, !`. More than one argument prints
+`Usage: hello [name]` to standard error and exits with a nonzero status.
 
 The `kda` folder must be **its own Git repository**. If a local `.git` does not
 exist yet, initialize and commit the baseline once:
@@ -200,7 +210,7 @@ the full Humanize loop has not been run as part of creating this scaffold.
 
 ## What each file does
 
-- `src/main.c`: working baseline greeting.
+- `src/main.c`: default and personalized greetings, with argument-count validation.
 - `tests/check_output.cmake`: runs the application and checks its output and status.
 - `AGENTS.md`: shared coding rules and build/test commands.
 - `docs/draft.md`: first task brief. Humanize generates `docs/plan.md` later.
