@@ -1,6 +1,6 @@
 ---
 name: alif-statistical-profiler
-description: Profile CPU hotspots on the KDA Alif E8 board using timer-based statistical PC sampling into RAM, then export and decode the capture against its exact AXF. Use for on-board profiling, finding expensive functions, or guiding benchmark optimization; use cycle or elapsed-time measurements separately for precise performance comparisons.
+description: Profile CPU hotspots on the KDA Alif E8 board using timer-based statistical PC sampling into RAM, decode against its exact AXF, and display function loads as PNG, offline HTML or Perfetto. Use for on-board profiling, finding expensive functions, or guiding benchmark optimization; use cycle or elapsed-time measurements separately for precise performance comparisons.
 ---
 
 # Alif E8 statistical profiling
@@ -27,7 +27,9 @@ Current configuration:
   so AC6 supplies `-mcmse`. HE remains an idle companion image.
 - UTIMER channel 0, overflow `UTIMER_IRQ7Handler` / IRQ 384, 400 MHz timer input
   under the default E8 clock setup. HP enables its shared clock bit before init.
-  Neither HE nor another driver may use that channel or vector.
+  Neither HE nor another driver may use that channel or vector. Startup stops,
+  clears and deconfigures this reserved channel before init: core reset can leave
+  UTIMER configured, causing the adapter's ownership check to reject it.
 - 1000 samples/s, 65536-byte buffer, PMU disabled. Buffer section
   `.bss.dtcm.profiler` goes to HP-local DTCM; stack bounds use SDK DTCM bounds.
 - Release stays `optimize: balanced`; debug information is enabled for both
@@ -35,7 +37,7 @@ Current configuration:
   Debug build when assessing Release performance.
 - `workload_light` and `workload_heavy` repeatedly increment volatile globals
   2000 and 6000 times. They are non-inlined and called forever. The first capture
-  stops when full or after three CPU seconds, then the workload continues.
+  stops when full or after two CPU seconds, then the workload continues.
   UART output is outside capture. Expect approximately 25%/75% within these two
   functions, with overhead and sampling aliasing; do not enforce exact shares.
 
@@ -75,11 +77,17 @@ Current configuration:
    Preserve the exact unstripped AXF before rebuilding. Inspect unknown PCs,
    rejected frames, buffer saturation and timing validity before interpreting
    percentages. Report sample count, workload, build/settings, and limitations.
+7. When asked to display profiling results, generate a symbol-labelled PNG and/or
+   the upstream offline HTML dashboard using the bundled visualization scripts.
+   Read [display-results.md](references/display-results.md) for commands, optional
+   dependencies and Perfetto export. Show function names and their sample shares;
+   do not substitute a function-rank timeline for the requested load comparison.
 
 Interact with the board only through CMSIS Developer Assistant MCP. Never install
 or directly launch pyOCD/GDB, start a second probe server, or use a raw GDB remote
-connection. If MCP cannot export through the existing session, have the user run
-the bundled commands in VS Code's active debug console. Repeated MCP failures
+connection. Native MCP memory reads can export the halted buffer; see the
+reference for the verified method. If neither memory reads nor console export
+works, have the user export in VS Code's active debug console. Repeated MCP failures
 require VS Code intervention; do not work around them with a separate debugger.
 
 ## Tune and interpret
@@ -90,7 +98,7 @@ in this header to override them without macro redefinition ambiguity. Defaults
 hold 2723 PC-only records, roughly 2.723 seconds at 1000 Hz. Full means a prefix
 was captured; increasing the buffer or lowering the rate can cover a longer phase.
 Change rate (for example 997 Hz) and repeat to detect aliasing with periodic work.
-The demo's three-second timeout is also a limit; adjust it deliberately if needed.
+The demo's two-second timeout is also a limit; adjust it deliberately if needed.
 
 Keep the actual UTIMER input clock and `SystemCoreClock` accurate and fixed.
 The configured 400 MHz follows the pack's default setup, not a runtime clock
@@ -119,6 +127,10 @@ Per-core DWT clocks have no shared epoch; do not combine percentages or timeline
 ## Validation scope
 
 This integration was validated by a successful CMSIS Release build, linker-map
-inspection, host tests, and synthetic decoder checks. Hardware timer operation,
-capture/export and the expected load split still require an on-board run.
+inspection, host tests, synthetic decoder checks, and a hardware run on 2026-09-23.
+The two-second HP capture produced 2000 samples: 1496 heavy (74.8%), 504 light
+(25.2%), zero rejected/unresolved, consistent timestamps and passing workload
+validation. Export used native MCP memory reads; `-exec` console commands were
+not accepted by this adapter. These results are a baseline, not a guarantee for
+future builds or proof of HE sampling support.
 The source and bundled-script provenance are in the analysis reference.

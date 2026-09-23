@@ -44,6 +44,21 @@ samples: 74.8% heavy and 25.2% light, with zero rejected or unresolved samples
 and passing workload validation. Startup reclaims only reserved UTIMER channel 0
 because the load/debug core resets can leave its peripheral configuration intact.
 
+Display a decoded capture using the copied upstream visualizer (offline HTML plus
+Perfetto) or the skill's PNG helper:
+
+```powershell
+uv run --with plotly==6.3.0 python .agents/skills/alif-statistical-profiler/scripts/visualize_profiler_report.py --report build/profile-2s/report --html
+uv run --with matplotlib python .agents/skills/alif-statistical-profiler/scripts/plot_function_load.py --report build/profile-2s/report --title 'Function load on Alif E8 - M55_HP'
+```
+
+Open `build/profile-2s/report/dashboard.html` in a wide desktop browser, or view
+`function-load.png` in the same directory. Both show function symbols and their
+sample shares. The HTML has an interactive timeline, full symbol table and PNG
+download buttons; `samples.perfetto.json` can be opened in a Perfetto viewer.
+See the skill's [display guide](.agents/skills/alif-statistical-profiler/references/display-results.md)
+for all output options. These commands use the measured report, not synthetic data.
+
 The original CMake host application and its tests remain available; the host
 branch of `src/main.c` retains the personalized greeting described below.
 Humanize is optional and was not used for this board conversion.
