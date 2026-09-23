@@ -5,13 +5,44 @@
 Open `kda.csolution.yml` in VS Code's CMSIS Solution view and select
 `DevKit-E8@Release`. The solution uses Arm Compiler 6 and includes both M55
 cores: HP prints `Hello World!` once through UART4 stdout (115200, 8N1), then
-idles; HE only idles. The board layers are adapted from the Alif Ensemble
+continuously calls two volatile-counter workloads with a 1:3 loop-length ratio;
+HE only idles. The board layers are adapted from the Alif Ensemble
 2.2.1 pack; see `board/DevKit-E8/README.md`.
 
 Validate the solution, reload the VS Code window, and configure the debug probe
 before loading or debugging. Keep both Release images selected. The existing
 dual-core debug stubs do not need to be reinstalled for this setup. The manual
 HP launch retains automatic execution of both cores (`run: "all"`).
+
+### Statistical profiling
+
+`kda.cproject.yml` references three layers in the external checkout
+`../../cmsis_statistical_profiler`: common capture, E8 adapter and UTIMER. Keep
+that checkout present, or update all three relative paths. Firmware sources are
+not copied into KDA. The integration was built with upstream commit
+`ad5342b73780d60bcb379caac0c6a6125663ec67`.
+
+HP reserves UTIMER channel 0 and a 64 KiB DTCM buffer, sampling at 1000 Hz.
+Its board layer now selects Secure compilation, as required by the adapter.
+Release optimization remains balanced, with debug information enabled for both
+images. `src/kda_profiler_config.h` holds local clock, channel, PMU and buffer
+placement settings. The 400 MHz timer input assumes the pack's default E8 clocks.
+
+The first capture stops when full or after two CPU seconds; both workload
+functions continue indefinitely. Expect roughly 25% light / 75% heavy samples,
+not an exact timing guarantee. Capture completion and validation are available
+in `statistical_samples.header`. Startup UART output is outside the capture.
+The host CMake executable retains its original greeting behavior.
+
+Use the project skill
+[alif-statistical-profiler](.agents/skills/alif-statistical-profiler/SKILL.md)
+for workload selection, CMSIS build/load checks, buffer export, offline analysis,
+and interpretation. It includes the upstream Python decoder and GDB export
+commands; board access stays through CMSIS Developer Assistant MCP / its existing
+debug session. A two-second HP hardware capture on 2026-09-23 produced 2000
+samples: 74.8% heavy and 25.2% light, with zero rejected or unresolved samples
+and passing workload validation. Startup reclaims only reserved UTIMER channel 0
+because the load/debug core resets can leave its peripheral configuration intact.
 
 The original CMake host application and its tests remain available; the host
 branch of `src/main.c` retains the personalized greeting described below.

@@ -37,7 +37,8 @@ solution:
 
   build-types:
     - type: Release
-      debug: off
+      # Retain optimized code plus types/symbols for profiling and capture export.
+      debug: on
       optimize: balanced
     - type: Debug
       debug: on

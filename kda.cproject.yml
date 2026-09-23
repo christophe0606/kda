@@ -5,6 +5,9 @@ project:
   language-C: c11
   define:
     - KDA_ALIF_E8
+    - PROFILER_USER_CONFIG: '"kda_profiler_config.h"'
+  add-path:
+    - ./src
 
   groups:
     - group: Application
@@ -14,6 +17,10 @@ project:
   layers:
     - layer: ./board/DevKit-E8/M55_HP/Board_HP.clayer.yml
       type: Board
+    # External dependency: paths are relative to this cproject, not the workspace.
+    - layer: ../../cmsis_statistical_profiler/cmsis_statistical_profiler.clayer.yml
+    - layer: ../../cmsis_statistical_profiler/adapters/alif_e8/alif_e8.clayer.yml
+    - layer: ../../cmsis_statistical_profiler/adapters/alif_e8/alif_e8_utimer.clayer.yml
 
   output:
     type:

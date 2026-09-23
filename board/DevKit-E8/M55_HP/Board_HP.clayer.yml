@@ -7,7 +7,8 @@ layer:
   for-device: Alif Semiconductor::AE822FA0E5597LS0:M55_HP
   device: :M55_HP
   processor:
-    trustzone: off
+    # The E8 sampling adapter reads Secure NVIC state and Secure stack frames.
+    trustzone: secure
 
   connections:
     - connect: DevKit-E8 HP console
