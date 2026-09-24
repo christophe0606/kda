@@ -1,7 +1,7 @@
 # Independent f32 FIR candidate
 
-The current candidate uses independently derived **eight-output Helium tiles**
-over a linear sample window, with scalar tiny-tap paths. It replaces the mirrored
+The current candidate uses independently derived **sixteen-output Helium tiles**
+over a linear sample window, with shift-carry tiny-tap paths. It replaces the mirrored
 ring after qualified measurements identified per-output history/reduction costs.
 Its correctness, safety and performance must be requalified after this change.
 The host greeting and
@@ -29,7 +29,7 @@ For this candidate, caller-owned storage is:
 | Public coefficients | Exactly N floats; only needed during initialization |
 | Prepared coefficients | N floats; retained for the instance lifetime |
 | History/work window | N+127 floats; retained for the instance lifetime |
-| Mutable `kda_fir_state_f32` | Window pointer and reserved next field (zero); retained |
+| Mutable `kda_fir_state_f32` | Window pointer and history-start offset next in [0,128]; retained |
 | `kda_fir_instance_f32` | Tap count, prepared pointer and mutable state pointer |
 
 No coefficient padding or vector alignment is required. Arrays require their
@@ -65,16 +65,20 @@ candidate and CMSIS instance structs are not cast-compatible.
 ## Derivation and access bounds
 
 The design comes from the FIR equation and measured candidate costs. Prepared
-coefficients retain `{b[N-1],...,b[0]}`. For N>4 the first H=N-1 work-window
-elements hold oldest-to-newest history; each chunk appends L<=128 new inputs.
-Output i is `sum(prepared[k]*window[i+k])`. Eight consecutive outputs use two
-vector accumulators and share each loaded coefficient. Remaining outputs use
-predicated four-lane loads/stores. The largest active window index is H+L-1,
-bounded by N+126. After each chunk an ascending overlap-safe copy retains
-`window[L..L+H)` at `window[0..H)`. All append/copy work is timed.
+coefficients retain `{b[N-1],...,b[0]}`. For N>4, H=N-1 samples starting at
+state.next hold oldest-to-newest history. Each chunk appends L<=128 inputs.
+If next+L>128, an ascending overlap-safe copy first moves those H samples to
+offset zero. Otherwise no compaction is needed. Output i is
+`sum(prepared[k]*window[next+i+k])`; next then advances by L. The largest active
+window index is next+H+L-1<=N+126. All append/compaction work is timed.
+Sixteen outputs use four accumulators sharing each coefficient. Owned hardware
+loops interleave contiguous vector loads and arithmetic; an eight-output tile
+and predicated four-lane tail cover the remainder. Blocks shorter than four use
+tap-wise vector dots. No gather-load latency assumption is used.
 
 N=1 scales directly. N=2..4 retains up to three most-recent samples at window
-indices0..2 and uses scalar rolling history. Initialization/reset zero the entire
+indices0..2 and uses vector shift-with-carry, followed by a scalar remainder;
+next remains zero on these tiny paths. Initialization/reset zero the entire
 documented window, including workspace; no coefficient padding is introduced.
 Block-size changes are supported because chunking occurs inside processing.
 The non-MVE host path computes the same linear-window convolution scalarly.

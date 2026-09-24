@@ -129,18 +129,18 @@ static int lifecycle(void)
 static int independent_variable_blocks(void)
 {
     const float coefficients[] = {-0.5f, 0.25f, 0.75f, -0.125f, 1};
-    float prepared[2][5], history[2][5U + KDA_FIR_CHUNK - 1U], input[2][40], output[2][40];
+    float prepared[2][5], history[2][5U + KDA_FIR_CHUNK - 1U], input[2][160], output[2][160];
     kda_fir_state_f32 state[2];
     kda_fir_instance_f32 instance[2];
     for (size_t s = 0; s < 2; ++s) {
         CHECK(kda_fir_init_f32(instance + s, state + s, 5, coefficients, 5,
                                prepared[s], 5, history[s], sizeof history[s] / sizeof history[s][0]));
-        for (size_t i = 0; i < 40; ++i) { input[s][i] = (float)(i + s * 3U) / 16; }
+        for (size_t i = 0; i < 160; ++i) { input[s][i] = (float)(i + s * 3U) / 16; }
     }
     size_t offset = 0;
     unsigned step = 1;
-    while (offset < 40) {
-        uint32_t count = (uint32_t)(40 - offset);
+    while (offset < 160) {
+        uint32_t count = (uint32_t)(160 - offset);
         if (count > step) { count = step; }
         for (size_t s = 0; s < 2; ++s) {
             kda_fir_f32(instance + s, input[s] + offset, output[s] + offset, count);
@@ -148,8 +148,8 @@ static int independent_variable_blocks(void)
         offset += count;
         step = step == 7 ? 1 : step + 1;
     }
-    CHECK(outputs_match(coefficients, 5, input[0], output[0], 40));
-    CHECK(outputs_match(coefficients, 5, input[1], output[1], 40));
+    CHECK(outputs_match(coefficients, 5, input[0], output[0], 160));
+    CHECK(outputs_match(coefficients, 5, input[1], output[1], 160));
     return 1;
 }
 

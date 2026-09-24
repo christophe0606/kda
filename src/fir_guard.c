@@ -154,7 +154,8 @@ static int guard_case(uint32_t block, uint16_t n, unsigned selected, unsigned of
     for (size_t i = 0; i < n; ++i) {
         p[2][i] = (float)((int)((i * 17U + 5U) % 31U) - 15) / 32.0f;
     }
-    for (size_t i = 0; i < 8U * block; ++i) { stream[i] = input_sample(5, i, &seed); }
+    const size_t parts = block < 32U ? 256U / block + 8U : 8U;
+    for (size_t i = 0; i < parts * block; ++i) { stream[i] = input_sample(5, i, &seed); }
     kda_fir_guard_result.block = block;
     kda_fir_guard_result.taps = n;
     kda_fir_guard_result.buffer = selected;
@@ -167,7 +168,7 @@ static int guard_case(uint32_t block, uint16_t n, unsigned selected, unsigned of
                                             p[3], n, p[4], kda_fir_history_f32_count(n));
     restore_mpu();
     if (!initialized) { return 0; }
-    for (size_t part = 0; part < 8; ++part) {
+    for (size_t part = 0; part < parts; ++part) {
         memcpy(p[0], stream + part * block, block * sizeof(float));
         for (size_t i = 0; i < block; ++i) { p[1][i] = SENTINEL; }
         kda_fir_guard_result.stage = 2;

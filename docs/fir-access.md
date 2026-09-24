@@ -2,13 +2,13 @@
 
 ## Current linear-window candidate
 
-Candidate `fir-scheduled8-v1` uses exactly N public/prepared coefficients and N+127
-work-window floats. Instance/state ABI sizes remain12/8 bytes; state.next is zero
-and reserved. Buffers are disjoint and naturally aligned. B must form a valid
+Candidate `fir-interleave16-v1` uses exactly N public/prepared coefficients and N+127
+work-window floats. Instance/state ABI sizes remain12/8 bytes; state.next is the
+history start in [0,128] for N>4, zero for N<=4. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.
 
 The source proof and candidate-only AC6 audit are tied to
-`runs/fir-r4/scheduled2-compile/candidate-only-disassembly.txt`. This compile/audit
+`runs/fir-r4/interleave16-numerical/candidate-only-disassembly.txt`. This compile/audit
 is not by itself a dynamic safety pass; fresh guard/control results are required.
 
 | Path | Access bounds and emitted implementation |
@@ -18,24 +18,27 @@ is not by itself a dynamic safety pass; fresh guard/control results are required
 | Init/reset clearing | Clears exactly 4*(N+127) bytes through the standard word-clear runtime helper; writes instance offsets0,4,8 and state offsets0,4. |
 | N=1 | Reads/writes only B source/destination elements; scalar low-overhead loop or `dlstp.32` scale with B-count tail. No history access. |
 | N=2..4 | Reads window[0..2] (valid even for N=2 under N+127 allocation), reads exactly N coefficients, writes window[0..2]. Full four-sample vectors use shift-with-carry to insert streaming history; each carry becomes the last lane shifted out. One to three scalar remainder loads/stores stay within B. |
-| General input append | H=N-1; L=min(B_remaining,128). Reads source[0..L), writes window[H..H+L). Scalar or tail-predicated copy with count L. |
+| Lazy compaction | Let s=next. If s+L>128, ascending copy reads window[s..s+H) and writes window[0..H), then sets s=0. Old s<=128, so maximum read is N+126. Source is ahead; every vector loads before its store. Predicated copy count H. |
+| General input append | H=N-1; L=min(B_remaining,128). After compaction check s+L<=128. Reads source[0..L), writes window[s+H..s+H+L). Scalar or tail-predicated copy with count L. The following tile bounds are relative to window+s. |
 | General L<4 | Each output i<L accumulates taps in four lanes, with `dlstp.32` count N predicating coefficient/sample reads. The final active sample index is i+N-1<=H+L-1. Scalar horizontal reduction writes one output. |
 | Eight-output tile | Requires i+8<=L. Each k<N reads coefficients[k], window[i+k..i+k+3] and window[i+k+4..i+k+7]. Maximum active index i+N+6<=N+L-2=H+L-1<=N+126. Two vector stores cover destination[i..i+8). |
+| Sixteen-output tile | Requires i+16<=L. Each k<N reads coefficients[k] and four contiguous vectors at i+k+{0,4,8,12}. Maximum relative index i+N+14<=N+L-2. Adding s stays <=N+126. Four stores write exactly destination[i..i+16). |
 | Four-output tail | `vctp.32(L-i)` predicates each sample load and final output store. Each active lane j<L-i has i+k+j<=N+L-2. The scalar coefficient load remains bounded by k<N. |
-| History retention | Ascending copy from window[L..L+H) to window[0..H), `dlstp.32` count H. Sources are ahead of destinations; every vector loads before its store. Maximum index L+H-1<=N+126. |
+| History retention | Advances s by L, maintaining 0<=s<=128. The H samples at this new offset are the latest history. Publishes s in state.next at return. No copy until space is needed. |
 | Chunk advance | Advances source/destination by L and decreases positive remaining B by L. Chunk indices stay <=128; no B+N arithmetic is used. |
 
 The public dispatcher tail-branches to private scale/tiny/window helpers.
-Their fixed frames are respectively 8, 48 and 68 bytes; none calls an external
+Their fixed frames are respectively 8, 48 and 96 bytes; none calls an external
 function. The private window helper assumes N>4, as guaranteed by the public
 dispatcher, eliminating the compiler's unreachable zero-tap clear call.
 Live temporaries remain on the DTCM stack. Complete code ranges are checked from
 each final image map.
-The eight-output tap loop has two `vldrw` and two scalar-coefficient vector
-`vfma.f32` instructions per tap and no horizontal reduction. The tail retains
-explicit VPT predication. Both full-tile loads precede their consumers via an
-empty compiler barrier; the resulting ordinary branch loop must be measured
-against the prior low-overhead loop, not presumed faster.
+The sixteen-output loop has four interleaved `vldrw`/scalar-coefficient vector
+`vfma.f32` pairs per tap; the eight-output loop has two. Both use explicit DLS/LE
+and no horizontal reduction. All asm-modified vector/GPR/condition registers
+are clobbered; advancing pointers are early-clobber operands and memory is
+clobbered. q4 is ABI-preserved by the emitted d8/d9 push/pop. No gather loads
+are used. The tail retains explicit VPT predication.
 No change to source/coefficient arrays occurs during
 processing.
 
@@ -44,6 +47,11 @@ alongside source, destination, original and prepared coefficients. The existing
 32-byte MPU alignment and static-only instance/state limitations still apply.
 The mandatory matrix includes 127/128/129 around the chunk boundary, all small
 dimensions, odd taps and partial output vectors.
+
+Small-block guard streams now contain at least256 samples plus eight blocks,
+crossing multiple compactions while each individual buffer remains guarded.
+The shared host/target variable-block lifecycle uses160 samples per independent
+instance, crossing compaction with changing block sizes.
 
 ## Historical mirrored-ring audit
 
