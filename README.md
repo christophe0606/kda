@@ -1,5 +1,12 @@
 # KDA: a minimal application for Humanize
 
+## FIR development
+
+The independent f32 FIR correctness candidate and its caller-owned storage/API
+contract are described in [docs/fir.md](docs/fir.md). CTest includes its host
+streaming/oracle suite. Helium implementation and on-board PMU qualification are
+still pending; this candidate has no measured performance claim.
+
 ## Alif E8 demo
 
 Open `kda.csolution.yml` in VS Code's CMSIS Solution view and select
