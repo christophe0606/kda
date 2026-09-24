@@ -74,7 +74,7 @@ static int matrix_case(uint16_t n, uint32_t block, unsigned pattern)
     kda_fir_state_f32 state;
     kda_fir_instance_f32 instance;
     CHECK(kda_fir_init_f32(&instance, &state, n, coefficients.data, n,
-                           prepared.data, n, history.data, (size_t)n * 2U));
+                           prepared.data, n, history.data, history.count));
     for (size_t offset = 0; offset < length; offset += block) {
         kda_fir_f32(&instance, input.data + offset, output.data + offset, block);
     }
@@ -96,12 +96,12 @@ static int lifecycle(void)
 {
     float public_coefficients[] = {3, 2, 1};
     const float original[] = {3, 2, 1};
-    float prepared[3], history[6], output[6];
+    float prepared[3], history[3U + KDA_FIR_CHUNK - 1U], output[6];
     const float impulse[] = {1, 0, 0, 0, 0, 0};
     kda_fir_state_f32 state;
     kda_fir_instance_f32 instance;
     CHECK(kda_fir_init_f32(&instance, &state, 3, public_coefficients, 3,
-                           prepared, 3, history, 6));
+                           prepared, 3, history, sizeof history / sizeof history[0]));
     /* Public coefficients are not referenced after initialization. */
     public_coefficients[0] = 99;
     for (size_t i = 0; i < 6; ++i) {
@@ -111,16 +111,16 @@ static int lifecycle(void)
     CHECK(outputs_match(original, 3, impulse, output, 6));
     kda_fir_reset_f32(&instance);
     CHECK(state.next == 0);
-    for (size_t k = 0; k < 6; ++k) { CHECK(history[k] == 0); }
+    for (size_t k = 0; k < sizeof history / sizeof history[0]; ++k) { CHECK(history[k] == 0); }
     kda_fir_f32(&instance, impulse, output, 6);
     CHECK(outputs_match(original, 3, impulse, output, 6));
     const float changed[] = {-2, 4, 0.5f};
-    CHECK(kda_fir_init_f32(&instance, &state, 3, changed, 3, prepared, 3, history, 6));
+    CHECK(kda_fir_init_f32(&instance, &state, 3, changed, 3, prepared, 3, history, sizeof history / sizeof history[0]));
     kda_fir_f32(&instance, impulse, output, 2);
     kda_fir_f32(&instance, impulse + 2, output + 2, 4);
     CHECK(outputs_match(changed, 3, impulse, output, 6));
     /* Reinitialization with a new dimension must rebuild bounds and history. */
-    CHECK(kda_fir_init_f32(&instance, &state, 1, changed, 1, prepared, 3, history, 6));
+    CHECK(kda_fir_init_f32(&instance, &state, 1, changed, 1, prepared, 3, history, sizeof history / sizeof history[0]));
     kda_fir_f32(&instance, impulse, output, 6);
     CHECK(outputs_match(changed, 1, impulse, output, 6));
     return 1;
@@ -129,12 +129,12 @@ static int lifecycle(void)
 static int independent_variable_blocks(void)
 {
     const float coefficients[] = {-0.5f, 0.25f, 0.75f, -0.125f, 1};
-    float prepared[2][5], history[2][10], input[2][40], output[2][40];
+    float prepared[2][5], history[2][5U + KDA_FIR_CHUNK - 1U], input[2][40], output[2][40];
     kda_fir_state_f32 state[2];
     kda_fir_instance_f32 instance[2];
     for (size_t s = 0; s < 2; ++s) {
         CHECK(kda_fir_init_f32(instance + s, state + s, 5, coefficients, 5,
-                               prepared[s], 5, history[s], 10));
+                               prepared[s], 5, history[s], sizeof history[s] / sizeof history[s][0]));
         for (size_t i = 0; i < 40; ++i) { input[s][i] = (float)(i + s * 3U) / 16; }
     }
     size_t offset = 0;
@@ -156,15 +156,15 @@ static int independent_variable_blocks(void)
 static int invalid_initialization(void)
 {
     const float coefficients[] = {3, 2, 1};
-    float prepared[3], history[6], input = 0.5f, output;
+    float prepared[3], history[3U + KDA_FIR_CHUNK - 1U], input = 0.5f, output;
     kda_fir_state_f32 state;
     kda_fir_instance_f32 instance;
     CHECK(kda_fir_history_f32_count(0) == 0 && kda_fir_coeff_f32_count(0) == 0);
-    CHECK(kda_fir_history_f32_count(UINT16_MAX) == (size_t)UINT16_MAX * 2U);
-    CHECK(kda_fir_init_f32(&instance, &state, 3, coefficients, 3, prepared, 3, history, 6));
+    CHECK(kda_fir_history_f32_count(UINT16_MAX) == (size_t)UINT16_MAX + KDA_FIR_CHUNK - 1U);
+    CHECK(kda_fir_init_f32(&instance, &state, 3, coefficients, 3, prepared, 3, history, sizeof history / sizeof history[0]));
     kda_fir_f32(&instance, &input, &output, 1);
     unsigned char saved_instance[sizeof instance], saved_state[sizeof state];
-    float saved_prepared[3], saved_history[6];
+    float saved_prepared[3], saved_history[3U + KDA_FIR_CHUNK - 1U];
     memcpy(saved_instance, &instance, sizeof instance);
     memcpy(saved_state, &state, sizeof state);
     memcpy(saved_prepared, prepared, sizeof prepared);
@@ -174,7 +174,7 @@ static int invalid_initialization(void)
             failure == 1 ? NULL : &state, failure == 2 ? 0 : 3,
             failure == 3 ? NULL : coefficients, failure == 4 ? 2 : 3,
             failure == 5 ? NULL : prepared, failure == 6 ? 2 : 3,
-            failure == 7 ? NULL : history, failure == 8 ? 5 : 6));
+            failure == 7 ? NULL : history, failure == 8 ? 3U + KDA_FIR_CHUNK - 2U : sizeof history / sizeof history[0]));
         CHECK(memcmp(saved_instance, &instance, sizeof instance) == 0);
         CHECK(memcmp(saved_state, &state, sizeof state) == 0);
         CHECK(memcmp(saved_prepared, prepared, sizeof prepared) == 0);
@@ -187,15 +187,15 @@ static int negative_controls(void)
 {
     const float coefficients[] = {3, 2, 1}, wrong[] = {1, 2, 3};
     const float changed[] = {2, -1, 0.5f}, input[] = {1, 2, 4, 8, 16, 32};
-    float prepared[3], history[6], output[6];
+    float prepared[3], history[3U + KDA_FIR_CHUNK - 1U], output[6];
     kda_fir_state_f32 state;
     kda_fir_instance_f32 instance;
     CHECK(!fir_close(NAN, 0, 0, 3));
     CHECK(!fir_close(1.0f, 0, 0, 3));
-    CHECK(kda_fir_init_f32(&instance, &state, 3, wrong, 3, prepared, 3, history, 6));
+    CHECK(kda_fir_init_f32(&instance, &state, 3, wrong, 3, prepared, 3, history, sizeof history / sizeof history[0]));
     kda_fir_f32(&instance, input, output, 6);
     CHECK(!outputs_match(coefficients, 3, input, output, 6));
-    CHECK(kda_fir_init_f32(&instance, &state, 3, coefficients, 3, prepared, 3, history, 6));
+    CHECK(kda_fir_init_f32(&instance, &state, 3, coefficients, 3, prepared, 3, history, sizeof history / sizeof history[0]));
     kda_fir_f32(&instance, input, output, 3);
     kda_fir_reset_f32(&instance);
     kda_fir_f32(&instance, input + 3, output + 3, 3);
@@ -210,7 +210,7 @@ static int negative_controls(void)
     prepared[0] += 1;
     kda_fir_f32(&instance, input, output, 6);
     CHECK(!outputs_match(coefficients, 3, input, output, 6));
-    CHECK(kda_fir_init_f32(&instance, &state, 3, coefficients, 3, prepared, 3, history, 6));
+    CHECK(kda_fir_init_f32(&instance, &state, 3, coefficients, 3, prepared, 3, history, sizeof history / sizeof history[0]));
     kda_fir_f32(&instance, input, output, 3);
     history[state.next + 1U] += 10;
     kda_fir_f32(&instance, input + 3, output + 3, 3);

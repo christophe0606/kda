@@ -1,9 +1,10 @@
 # Independent f32 FIR candidate
 
-The current candidate adds an independent **Helium tap-vector dot product** to
-the mirrored-ring correctness foundation. Target MPU guards and deliberate read/write
-fault controls passed; complete ITCM/DTCM residency, PMU cycles and CMSIS parity
-are being qualified separately from safety. The host greeting and
+The current candidate uses independently derived **eight-output Helium tiles**
+over a linear sample window, with scalar tiny-tap paths. It replaces the mirrored
+ring after qualified measurements identified per-output history/reduction costs.
+Its correctness, safety and performance must be requalified after this change.
+The host greeting and
 statistical board demo remain selectable; Release currently selects FIR correctness.
 
 ## Public contract
@@ -27,8 +28,8 @@ For this candidate, caller-owned storage is:
 |---|---|
 | Public coefficients | Exactly N floats; only needed during initialization |
 | Prepared coefficients | N floats; retained for the instance lifetime |
-| History | 2*N floats; retained for the instance lifetime |
-| Mutable `kda_fir_state_f32` | History pointer and next write index; retained |
+| History/work window | N+127 floats; retained for the instance lifetime |
+| Mutable `kda_fir_state_f32` | Window pointer and reserved next field (zero); retained |
 | `kda_fir_instance_f32` | Tap count, prepared pointer and mutable state pointer |
 
 No coefficient padding or vector alignment is required. Arrays require their
@@ -38,7 +39,7 @@ in-place calls, is unsupported. Neither calls sharing mutable state nor concurre
 reinitialization/processing of one instance are supported. Separate instances can
 share the original read-only public coefficients during initialization.
 
-Initialization returns 1 on success, copies/reorders coefficients, clears all
+Initialization returns 1 on success, copies coefficients in public order, clears all
 history, sets the next index to zero and publishes every instance/state field.
 Null pointers, zero taps or insufficient capacities return 0 **before any writes**,
 leaving the instance, state, prepared buffer and history unchanged. Disjoint valid
@@ -48,7 +49,7 @@ coefficients may be released or changed afterward; processing uses the prepared
 copy. Call initialization again to change the filter, never patch its public input
 array and expect a running instance to change.
 
-`kda_fir_reset_f32` requires a valid instance, clears all 2*N history elements and
+`kda_fir_reset_f32` requires a valid instance, clears all N+127 window elements and
 sets the next index to zero while retaining prepared coefficients. Processing
 requires a valid instance and positive block size. It supports varying positive
 block sizes between calls without reinitialization. `pSrc` and `pDst` each cover
@@ -63,21 +64,21 @@ candidate and CMSIS instance structs are not cast-compatible.
 
 ## Derivation and access bounds
 
-The design comes from the FIR equation and periodic indexing, not from comparator
-internals. Initialization prepares `prepared[k] = b[k]`. Each incoming sample is
-written at ring position p and at p+N in a duplicated history array. The write
-position moves backward modulo N. Consequently `history[p+k]` is the sample with
-delay k, and one contiguous dot product computes the next output. There are two
-state stores per input and no block-end history copy. The mutable index lives in a
-separate state object so processing never casts away the instance's constness.
+The design comes from the FIR equation and measured candidate costs. Prepared
+coefficients retain `{b[N-1],...,b[0]}`. For N>4 the first H=N-1 work-window
+elements hold oldest-to-newest history; each chunk appends L<=128 new inputs.
+Output i is `sum(prepared[k]*window[i+k])`. Eight consecutive outputs use two
+vector accumulators and share each loaded coefficient. Remaining outputs use
+predicated four-lane loads/stores. The largest active window index is H+L-1,
+bounded by N+126. After each chunk an ascending overlap-safe copy retains
+`window[L..L+H)` at `window[0..H)`. All append/copy work is timed.
 
-For `0 <= p < N` and `0 <= k < N`, the dot reads at most index `2*N-2`; the mirrored
-store writes at most `2*N-1`. Prepared coefficient accesses are exactly `[0,N)`.
-Only the requested source/destination samples are accessed. The Helium loop advances
-k by four and predicates each load and FMA with `min(4,N-k)` active lanes. Thus each
-active lane j satisfies k+j<N; the same bounds hold without caller padding. Four
-partial sums are reduced in scalar lanes. The non-MVE host build retains the scalar
-path. Host canaries detect writes, not otherwise valid reads into a canary.
+N=1 scales directly. N=2..4 retains up to three most-recent samples at window
+indices0..2 and uses scalar rolling history. Initialization/reset zero the entire
+documented window, including workspace; no coefficient padding is introduced.
+Block-size changes are supported because chunking occurs inside processing.
+The non-MVE host path computes the same linear-window convolution scalarly.
+Host canaries detect writes, not otherwise valid reads into a canary.
 
 Future versions must preserve this candidate's documented storage contract
 or explicitly create and document a new candidate contract. They must not silently

@@ -94,7 +94,7 @@ def residency(path):
                 section['address'] + section['size'] <= region['address'] + region['capacity']):
             raise ValueError('Timed section outside TCM: '+key)
         closure[key] = dict(section, references=sorted(edges.get(key, [])))
-        pending.extend(edges.get(key, []))
+        pending.extend(sorted(edges.get(key, [])))
     for name in ('ITCM_RAM', 'RW_RAM', 'ARM_LIB_STACK'):
         if regions[name]['size'] > regions[name]['capacity']:
             raise ValueError('TCM capacity exceeded')
@@ -112,7 +112,7 @@ def expected_readback(profile):
             blocks.append((f'{core}:image', address, data))
     placement = residency(profile / 'out/kda/DevKit-E8/Release/kda.axf.map')
     elf = profile / 'out/kda/DevKit-E8/Release/kda.axf'
-    for name, section in placement['sections'].items():
+    for name, section in sorted(placement['sections'].items()):
         if section['type'] == 'Code':
             blocks.append((name, section['address'], elf_bytes(elf, section['address'], section['size'])))
     return [(name, address+offset, data[offset:offset+4096])

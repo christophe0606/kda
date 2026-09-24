@@ -74,7 +74,7 @@ static int run_case(uint16_t n, uint32_t block, unsigned pattern)
     kda_fir_result.taps = n;
     kda_fir_result.pattern = pattern;
     kda_fir_result.candidate_coeff_floats = n;
-    kda_fir_result.candidate_history_floats = 2U * n;
+    kda_fir_result.candidate_history_floats = kda_fir_history_f32_count(n);
     kda_fir_result.baseline_coeff_floats = ((n + 3U) & ~3U) + BASELINE_READ_MARGIN;
     kda_fir_result.baseline_state_floats = n + 2U * block - 1U + BASELINE_READ_MARGIN;
     memset(baseline_coefficients, 0, sizeof baseline_coefficients);
@@ -92,7 +92,7 @@ static int run_case(uint16_t n, uint32_t block, unsigned pattern)
         baseline_output[i] = NAN;
     }
     if (!kda_fir_init_f32(&candidate, &candidate_state, n, coefficients, n,
-                          prepared, n, history, 2U * n)) {
+                          prepared, n, history, kda_fir_history_f32_count(n))) {
         ++kda_fir_result.failures;
         return 0;
     }

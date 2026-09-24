@@ -1,5 +1,48 @@
 # Candidate buffer-access ledger
 
+## Current linear-window candidate
+
+Candidate `fir-linear8-v1` uses exactly N public/prepared coefficients and N+127
+work-window floats. Instance/state ABI sizes remain12/8 bytes; state.next is zero
+and reserved. Buffers are disjoint and naturally aligned. B must form a valid
+representable float object. No comparator instructions were inspected.
+
+The source proof and candidate-only AC6 audit are tied to
+`runs/fir-r4/linear8-compile/candidate-only-disassembly.txt`. This compile/audit
+is not by itself a dynamic safety pass; fresh guard/control results are required.
+
+| Path | Access bounds and emitted implementation |
+|---|---|
+| Counts/init validation | N>0 and N+127 floats fit size_t byte arithmetic. All capacities/nulls are checked before caller stores. |
+| Coefficient copy | Reads C[0..N), writes P[0..N). Scalar or `dlstp.32` copy, tail count N; no unpredicated overread. |
+| Init/reset clearing | Clears exactly 4*(N+127) bytes through the standard word-clear runtime helper; writes instance offsets0,4,8 and state offsets0,4. |
+| N=1 | Reads/writes only B source/destination elements; scalar low-overhead loop or `dlstp.32` scale with B-count tail. No history access. |
+| N=2..4 | Reads window[0..2] (valid even for N=2 under N+127 allocation), reads exactly N coefficients, writes window[0..2]. Scalar four-output unrolling executes only full groups; 1..3 scalar remainder loads/stores stay within B. |
+| General input append | H=N-1; L=min(B_remaining,128). Reads source[0..L), writes window[H..H+L). Scalar or tail-predicated copy with count L. |
+| Eight-output tile | Requires i+8<=L. Each k<N reads coefficients[k], window[i+k..i+k+3] and window[i+k+4..i+k+7]. Maximum active index i+N+6<=N+L-2=H+L-1<=N+126. Two vector stores cover destination[i..i+8). |
+| Four-output tail | `vctp.32(L-i)` predicates each sample load and final output store. Each active lane j<L-i has i+k+j<=N+L-2. The scalar coefficient load remains bounded by k<N. |
+| History retention | Ascending copy from window[L..L+H) to window[0..H), `dlstp.32` count H. Sources are ahead of destinations; every vector loads before its store. Maximum index L+H-1<=N+126. |
+| Chunk advance | Advances source/destination by L and decreases positive remaining B by L. Chunk indices stay <=128; no B+N arithmetic is used. |
+
+The processing function has no external calls, and its fixed stack frame is
+56 bytes (nine saved registers plus20 local bytes); live temporaries remain on
+the DTCM stack. Its complete code range is checked from each final image map.
+The eight-output tap loop has two `vldrw` and two scalar-coefficient vector
+`vfma.f32` instructions per tap and no horizontal reduction. The tail retains
+explicit VPT predication. No change to source/coefficient arrays occurs during
+processing.
+
+Dynamic evidence must guard the complete N+127 window (including scratch),
+alongside source, destination, original and prepared coefficients. The existing
+32-byte MPU alignment and static-only instance/state limitations still apply.
+The mandatory matrix includes 127/128/129 around the chunk boundary, all small
+dimensions, odd taps and partial output vectors.
+
+## Historical mirrored-ring audit
+
+The audit below applies to the previous `fir-mirrored-mve-v1` candidate, not the
+current linear-window implementation. It is retained as historical evidence.
+
 This audit applies to `fir-mirrored-mve-v1`, the application-local candidate in
 `src/kda_fir_f32.c`. It uses candidate-only AC6 6.24 Cortex-M55 Release disassembly
 and the linked standard C runtime clear helper. No CMSIS-DSP instructions or

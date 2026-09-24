@@ -67,9 +67,11 @@ def summarize(profile, capture):
     if len(readback) != len(expected):
         errors.append('missing image readback')
     else:
-        for actual, (name,address,content) in zip(readback,expected):
-            if (actual['name'] != name or int(actual['address'],0) != address or
-                    bytes(actual['bytes']) != content):
+        actual_blocks = {(r['name'],int(r['address'],0)):bytes(r['bytes']) for r in readback}
+        if len(actual_blocks) != len(readback):
+            errors.append('duplicate image readback block')
+        for name,address,content in expected:
+            if actual_blocks.get((name,address)) != content:
                 errors.append('runtime image readback mismatch: '+name)
     if not (meta['phase'] == 3 and meta['cases_completed'] == 323 and meta['failures'] == 0
             and meta['restored'] == 1 and meta['faults'] == 0):

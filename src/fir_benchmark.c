@@ -174,7 +174,7 @@ static void fixtures(uint32_t block, uint16_t n)
         input[i] = input_sample(5, i, &seed);
         baseline_input[i] = input[i];
     }
-    kda_fir_init_f32(&candidate, &state, n, coeff, n, prepared, n, history, 2U*n);
+    kda_fir_init_f32(&candidate, &state, n, coeff, n, prepared, n, history, kda_fir_history_f32_count(n));
     arm_fir_init_f32(&baseline, n, baseline_coeff, baseline_history, block);
     fir_batch_candidate(WARMUP, &candidate, input, output, block);
     fir_batch_baseline(WARMUP, &baseline, baseline_input, baseline_output, block);

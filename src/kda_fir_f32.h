@@ -6,6 +6,7 @@
 
 /* Public f32 scalar type; a repeated identical C11 typedef is permitted. */
 typedef float float32_t;
+#define KDA_FIR_CHUNK 128U
 
 typedef struct {
     float32_t *history;

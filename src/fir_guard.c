@@ -141,7 +141,7 @@ static int canaries_ok(float *pointers[5], const size_t sizes[5], unsigned selec
 static int guard_case(uint32_t block, uint16_t n, unsigned selected, unsigned offset)
 {
     /* 0=source, 1=destination, 2=public coefficients, 3=prepared, 4=history. */
-    const size_t sizes[5] = {block, block, n, n, 2U * n};
+    const size_t sizes[5] = {block, block, n, n, kda_fir_history_f32_count(n)};
     float *p[5];
     kda_fir_state_f32 state;
     kda_fir_instance_f32 instance;
@@ -164,7 +164,7 @@ static int guard_case(uint32_t block, uint16_t n, unsigned selected, unsigned of
     kda_fir_guard_result.stage = 1;
     protect_gap();
     const int initialized = kda_fir_init_f32(&instance, &state, n, p[2], n,
-                                            p[3], n, p[4], 2U * n);
+                                            p[3], n, p[4], kda_fir_history_f32_count(n));
     restore_mpu();
     if (!initialized) { return 0; }
     for (size_t part = 0; part < 8; ++part) {
@@ -187,7 +187,7 @@ static int guard_case(uint32_t block, uint16_t n, unsigned selected, unsigned of
     kda_fir_reset_f32(&instance);
     restore_mpu();
     if (state.next != 0) { return 0; }
-    for (size_t i = 0; i < 2U * n; ++i) { if (p[4][i] != 0) { return 0; } }
+    for (size_t i = 0; i < kda_fir_history_f32_count(n); ++i) { if (p[4][i] != 0) { return 0; } }
     for (size_t i = 0; i < n; ++i) {
         const float expected = (float)((int)((i * 17U + 5U) % 31U) - 15) / 32.0f;
         if (p[2][i] != expected) { return 0; }
