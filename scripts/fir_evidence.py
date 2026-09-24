@@ -81,6 +81,13 @@ def residency(path):
              'fir_batch_empty.o(.text.fir_batch_empty)',
              'fir_batch_empty.o(.text.fir_batch_control)',
              'fir_benchmark.o(.text.interval)']
+    if 'fir_dispatch_medium' in symbols:
+        # The owned initializer selects a helper pointer. Map cross references
+        # cannot follow an indirect branch, so root every emitted owned FIR
+        # helper, including both block-size alternatives, before closure.
+        roots += sorted(key for key, section in sections.items()
+                        if key.startswith('kda_fir_f32.o(.text.fir_')
+                        and section['type'] == 'Code')
     closure, pending = {}, list(roots)
     while pending:
         key = pending.pop()

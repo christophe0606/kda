@@ -13,11 +13,16 @@ typedef struct {
     size_t next;
 } kda_fir_state_f32;
 
-typedef struct {
+typedef struct kda_fir_instance_f32 kda_fir_instance_f32;
+typedef void (*kda_fir_processor_f32)(const kda_fir_instance_f32 *,
+    const float32_t *, float32_t *, uint32_t);
+
+struct kda_fir_instance_f32 {
     uint16_t num_taps;
     const float32_t *prepared;
     kda_fir_state_f32 *state;
-} kda_fir_instance_f32;
+    kda_fir_processor_f32 process;
+};
 
 /* Counts are floats, not bytes. Zero means invalid or unrepresentable. */
 size_t kda_fir_history_f32_count(uint16_t num_taps);

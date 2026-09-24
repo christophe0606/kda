@@ -30,7 +30,7 @@ For this candidate, caller-owned storage is:
 | Prepared coefficients | N floats; retained for the instance lifetime |
 | History/work window | N+127 floats; retained for the instance lifetime |
 | Mutable `kda_fir_state_f32` | Window pointer and history-start offset next in [0,128]; retained |
-| `kda_fir_instance_f32` | Tap count, prepared pointer and mutable state pointer |
+| `kda_fir_instance_f32` | Tap count, prepared pointer, mutable state pointer and initialization-selected processing helper; 16 bytes on target |
 
 No coefficient padding or vector alignment is required. Arrays require their
 natural float alignment; objects require their C type's alignment. All storage
@@ -41,6 +41,11 @@ share the original read-only public coefficients during initialization.
 
 Initialization returns 1 on success, copies coefficients in public order, clears all
 history, sets the next index to zero and publishes every instance/state field.
+It selects an owned processing helper from the tap count; the public processing
+function invokes that pointer. Helpers still dispatch on the current block size
+where necessary, so initialization does not fix the block size. Callers must not
+overwrite initialized fields. Reinitialization rebuilds the helper choice, while
+reset preserves it. Prepared coefficients still use the public order.
 Null pointers, zero taps or insufficient capacities return 0 **before any writes**,
 leaving the instance, state, prepared buffer and history unchanged. Disjoint valid
 objects are a caller precondition, not a runtime overlap-detection feature.
@@ -307,6 +312,22 @@ enabled: validated Release build, completed dual-image programming, 2261 numeric
 cases with zero failures, no live fault flags, and debugger detached.
 
 ## Evidence and independent-design boundary
+
+`scripts/report_fir_scaling.py` revalidates one complete capture before reporting
+all28 B>=128,N>=16 cells in JSON, CSV and Markdown. Invoke it through uv, which
+uses the script's pinned NumPy dependency:
+
+```powershell
+uv run --no-project --python 3.13 scripts/report_fir_scaling.py --profile PROFILE --capture CAPTURE --output runs/fir-scaling
+```
+
+Each capture gets its own unweighted SVD least-squares fit over all28 points,
+including residuals, RMS, rank, raw and column-normalized condition numbers.
+The report includes signed target gaps, speedups, every row/column trend and the
+127/128/129 by15/16/17 onset neighborhood. It reports parity failures independently;
+a qualified measurement or favorable fitted coefficient does not waive them.
+`tests/test_fir_scaling.py` exercises exact-polynomial recovery, retained outliers,
+rank deficiency and rejected incomplete/unqualified evidence.
 
 Candidate IDs and parents are recorded in `solutions.jsonl`. `benchmark.csv` uses
 source SHA-256 identities and a `Benchmark-Revision` commit trailer to identify

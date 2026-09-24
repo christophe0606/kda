@@ -21,6 +21,8 @@
 
 _Static_assert(sizeof(float32_t) == 4, "FIR requires a 32-bit float");
 
+static kda_fir_processor_f32 select_processor(uint16_t num_taps);
+
 size_t kda_fir_history_f32_count(uint16_t num_taps)
 {
     const size_t count = num_taps;
@@ -56,6 +58,7 @@ int kda_fir_init_f32(kda_fir_instance_f32 *S, kda_fir_state_f32 *state,
     S->num_taps = num_taps;
     S->prepared = prepared;
     S->state = state;
+    S->process = select_processor(num_taps);
     return 1;
 }
 
@@ -637,45 +640,62 @@ KDA_NOINLINE void fir_tiny4(const kda_fir_instance_f32 *S,
 KDA_NOINLINE void fir_fixed5(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
 {
+    if (blockSize <= 8U) { fir_small(S,pSrc,pDst,blockSize); return; }
     fir_fixed(S, pSrc, pDst, blockSize, 5U);
 }
 
 KDA_NOINLINE void fir_fixed6(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
 {
+    if (blockSize <= 8U) { fir_small(S,pSrc,pDst,blockSize); return; }
     fir_fixed(S, pSrc, pDst, blockSize, 6U);
 }
 
 KDA_NOINLINE void fir_fixed7(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
 {
+    if (blockSize <= 8U) { fir_small(S,pSrc,pDst,blockSize); return; }
     fir_fixed(S, pSrc, pDst, blockSize, 7U);
 }
 
 KDA_NOINLINE void fir_fixed8(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
 {
+    if (blockSize <= 8U) { fir_small(S,pSrc,pDst,blockSize); return; }
     fir_fixed(S, pSrc, pDst, blockSize, 8U);
 }
 
+KDA_NOINLINE void fir_dispatch_medium(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    if (blockSize <= 8U) { fir_small(S,pSrc,pDst,blockSize); }
+    else { fir_medium(S,pSrc,pDst,blockSize); }
+}
+
+KDA_NOINLINE void fir_dispatch_window(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    if (blockSize < 8U) { fir_short(S,pSrc,pDst,blockSize); }
+    else { fir_window(S,pSrc,pDst,blockSize); }
+}
+
+static kda_fir_processor_f32 select_processor(uint16_t num_taps)
+{
+    switch (num_taps) {
+    case 1: return fir_scale;
+    case 2: return fir_tiny2;
+    case 3: return fir_tiny3;
+    case 4: return fir_tiny4;
+    case 5: return fir_fixed5;
+    case 6: return fir_fixed6;
+    case 7: return fir_fixed7;
+    case 8: return fir_fixed8;
+    default: return num_taps <= 32U ? fir_dispatch_medium : fir_dispatch_window;
+    }
+}
 
 void kda_fir_f32(const kda_fir_instance_f32 *S, const float32_t *pSrc,
                  float32_t *pDst, uint32_t blockSize)
 {
-    if (S->num_taps == 1U) { fir_scale(S,pSrc,pDst,blockSize); }
-    else if (S->num_taps <= 4U) {
-        if (S->num_taps == 2U) { fir_tiny2(S,pSrc,pDst,blockSize); }
-        else if (S->num_taps == 3U) { fir_tiny3(S,pSrc,pDst,blockSize); }
-        else { fir_tiny4(S,pSrc,pDst,blockSize); }
-    } else if (S->num_taps <= 32U && blockSize <= 8U) {
-        fir_small(S,pSrc,pDst,blockSize);
-    } else if (S->num_taps <= 8U) {
-        if (S->num_taps == 5U) { fir_fixed5(S,pSrc,pDst,blockSize); }
-        else if (S->num_taps == 6U) { fir_fixed6(S,pSrc,pDst,blockSize); }
-        else if (S->num_taps == 7U) { fir_fixed7(S,pSrc,pDst,blockSize); }
-        else { fir_fixed8(S,pSrc,pDst,blockSize); }
-    }
-    else if (blockSize < 8U) { fir_short(S,pSrc,pDst,blockSize); }
-    else if (S->num_taps <= 32U) { fir_medium(S,pSrc,pDst,blockSize); }
-    else { fir_window(S,pSrc,pDst,blockSize); }
+    S->process(S,pSrc,pDst,blockSize);
 }
