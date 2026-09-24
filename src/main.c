@@ -6,6 +6,7 @@
 #include "retarget_init.h"
 #if KDA_APP_FIR
 #include "fir_target.h"
+#include "fir_guard.h"
 #else
 #include "sampling_profiler.h"
 #include "profiler_utimer_config.h"
@@ -38,7 +39,11 @@ int main(void)
     }
 
 #if KDA_APP_FIR
+#if KDA_APP_FIR >= 2
+    kda_fir_guard_run();
+#else
     kda_fir_target_run();
+#endif
     for (;;) { __WFI(); }
 #else
     /* HP alone owns UTIMER channel 0; HE does not access UTIMER. Do not

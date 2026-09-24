@@ -5,7 +5,7 @@ project:
   language-C: c11
   define:
     - KDA_ALIF_E8
-    # 1 selects FIR correctness; 0 retains the statistical demo.
+    # 0=demo, 1=FIR numerical, 2=MPU guards, 3=read fault, 4=write fault.
     - KDA_APP_FIR: 1
     - PROFILER_USER_CONFIG: '"kda_profiler_config.h"'
   add-path:
@@ -34,6 +34,7 @@ project:
             - -ffp-contract=off
       files:
         - file: ./src/fir_target.c
+        - file: ./src/fir_guard.c
         - file: ./tests/fir_oracle.c
         - file: ./tests/test_fir.c
 

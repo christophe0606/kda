@@ -1,8 +1,9 @@
 # Independent f32 FIR candidate
 
 The current candidate adds an independent **Helium tap-vector dot product** to
-the mirrored-ring correctness foundation. Target memory guards, complete ITCM/DTCM
-residency, PMU cycles and CMSIS parity remain unqualified. The host greeting and
+the mirrored-ring correctness foundation. Target MPU guards and deliberate read/write
+fault controls passed; complete ITCM/DTCM residency, PMU cycles and CMSIS parity
+remain unqualified. The host greeting and
 statistical board demo remain selectable; Release currently selects FIR correctness.
 
 ## Public contract
@@ -51,7 +52,9 @@ array and expect a running instance to change.
 sets the next index to zero while retaining prepared coefficients. Processing
 requires a valid instance and positive block size. It supports varying positive
 block sizes between calls without reinitialization. `pSrc` and `pDst` each cover
-the supplied block size and are disjoint from instance-owned storage. No function
+the supplied block size and are disjoint from instance-owned storage. B floats
+must form a representable object/byte span (`B <= SIZE_MAX / sizeof(float32_t)`),
+as well as fitting the actual supplied allocations. No function
 allocates memory internally.
 
 The f32 typedef is the standard C `float`; the C11 interface can coexist with an
@@ -152,7 +155,9 @@ missing candidate MVE float support or a non-MVE/autovectorized comparator selec
 An exact `.bss.dtcm.fir` selector prevents collision with SRAM `.bss.*` selectors.
 
 CMSIS Load retains its output in `runs/cmsis-load.log` through the existing CMSIS
-task. Its preparation dependency creates `runs/` on a fresh checkout. Inspect the log
+task. Its preparation dependency creates `runs/` on a fresh checkout. CMSIS task
+regeneration can replace these custom task settings; check them after conversion
+and restore log capture before loading. Inspect the log
 for both selected image paths and completed programming; a responsive debugger or
 MCP success message alone is insufficient. A failed link can leave an older ELF.
 
@@ -165,11 +170,22 @@ from the MRAM correctness image, not safety, residency or performance acceptance
 
 Candidate-only final disassembly shows `dlstp.32` using N, two `vldrw` streams,
 `vfma.f32`, and `letp` before scalar reduction, with mirrored scalar stores.
-The emitted tail-predicated loop supports the source bound above; a full audit
-of initialization/reset/compiler-generated paths and guarded target tests is
-still required before safety qualification. Evidence:
+The emitted tail-predicated loop supports the source bound above. The complete
+candidate access audit and guarded target results are in [fir-access.md](fir-access.md).
+Initial numerical evidence:
 `runs/fir-reference/candidate-final-mve.txt`, `selected-commands.json`,
 `baseline-commands.json`, `image-hashes.txt`, and `final-load.log`.
+
+Use `KDA_APP_FIR=2` for the healthy MPU suite, `3` for the deliberate vector-read
+fault, or `4` for the deliberate scalar-write fault. Each requires a separate
+validated Release build and serialized CMSIS load. Modes 3/4 intentionally halt
+in HardFault; let the handler run past debugger vector catch to retain its record.
+Restore mode 1 and reload after controls. The healthy suite passed 6460 cases;
+both controls faulted at `0x20001500` with CFSR `0x82` and HFSR `0x40000000`.
+Artifacts under `runs/fir-guard/{healthy,read-fault,write-fault}` retain image hashes,
+build/load logs and raw/decoded MPU results. These MRAM-code tests qualify the
+audited candidate buffer accesses, not TCM performance. Re-audit and rerun guards
+after changes that alter candidate instructions.
 
 ## Evidence and independent-design boundary
 
