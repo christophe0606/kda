@@ -270,6 +270,60 @@ static inline void fir_tile16(const float32_t *samples,
         : [output] "r" (output), [taps] "r" (taps - 2U)
         : "q0", "q1", "q2", "q3", "q4", "r12", "lr", "cc", "memory");
 }
+
+/* Only the final vector is partial; 13 <= length <= 15. Preserve the
+ * caller predicate explicitly because AC6 has no inline-asm VPR clobber. */
+static inline void fir_tail16(const float32_t *samples,
+    const float32_t *coefficients, float32_t *output, uint32_t taps, uint32_t length)
+{
+    uint32_t saved_predicate;
+    __asm volatile(
+        "vmrs %[saved], p0\n"
+        "vctp.32 %[tail]\n"
+        "ldr r12, [%[coefficients]], #4\n"
+        "vldrw.u32 q4, [%[samples]], #4\n"
+        "vmul.f32 q0, q4, r12\n"
+        "vldrw.u32 q4, [%[samples], #12]\n"
+        "vmul.f32 q1, q4, r12\n"
+        "vldrw.u32 q4, [%[samples], #28]\n"
+        "vmul.f32 q2, q4, r12\n"
+        "vpst\n"
+        "vldrwt.u32 q4, [%[samples], #44]\n"
+        "vmul.f32 q3, q4, r12\n"
+        "dls lr, %[taps]\n"
+        ".p2align 2\n"
+        "1:\n"
+        "ldr r12, [%[coefficients]], #4\n"
+        "vldrw.u32 q4, [%[samples]], #4\n"
+        "vfma.f32 q0, q4, r12\n"
+        "vldrw.u32 q4, [%[samples], #12]\n"
+        "vfma.f32 q1, q4, r12\n"
+        "vldrw.u32 q4, [%[samples], #28]\n"
+        "vfma.f32 q2, q4, r12\n"
+        "vpst\n"
+        "vldrwt.u32 q4, [%[samples], #44]\n"
+        "vfma.f32 q3, q4, r12\n"
+        "le lr, 1b\n"
+        "ldr r12, [%[coefficients]], #4\n"
+        "vldrw.u32 q4, [%[samples]], #4\n"
+        "vfma.f32 q0, q4, r12\n"
+        "vstrw.32 q0, [%[output]]\n"
+        "vldrw.u32 q4, [%[samples], #12]\n"
+        "vfma.f32 q1, q4, r12\n"
+        "vstrw.32 q1, [%[output], #16]\n"
+        "vldrw.u32 q4, [%[samples], #28]\n"
+        "vfma.f32 q2, q4, r12\n"
+        "vstrw.32 q2, [%[output], #32]\n"
+        "vpst\n"
+        "vldrwt.u32 q4, [%[samples], #44]\n"
+        "vfma.f32 q3, q4, r12\n"
+        "vpst\n"
+        "vstrwt.32 q3, [%[output], #48]\n"
+        "vmsr p0, %[saved]\n"
+        : [saved] "=&r" (saved_predicate), [samples] "+&r" (samples), [coefficients] "+&r" (coefficients)
+        : [output] "r" (output), [taps] "r" (taps - 2U), [tail] "r" (length - 12U)
+        : "q0", "q1", "q2", "q3", "q4", "r12", "lr", "cc", "memory");
+}
 #endif
 
 KDA_NOINLINE static void fir_window(const kda_fir_instance_f32 *S,
@@ -310,6 +364,10 @@ KDA_NOINLINE static void fir_window(const kda_fir_instance_f32 *S,
 #pragma clang loop unroll(disable)
         for (; i + 16U <= length; i += 16U) {
             fir_tile16(window+i, coefficients, pDst+i, (uint32_t)count);
+        }
+        if (length - i >= 13U) {
+            fir_tail16(window+i, coefficients, pDst+i, (uint32_t)count, length-i);
+            i = length;
         }
         if (i + 8U <= length) {
             fir_tile8(window+i, coefficients, pDst+i, (uint32_t)count);
@@ -373,6 +431,10 @@ KDA_INLINE static void fir_medium_outputs(const float32_t *__restrict samples,
 #pragma clang loop unroll(disable)
     for (; i + 16U <= length; i += 16U) {
         fir_tile16(samples+i, coefficients, output+i, count);
+    }
+    if (length - i >= 13U) {
+        fir_tail16(samples+i, coefficients, output+i, count, length-i);
+        i = length;
     }
     if (i + 8U <= length) {
         fir_tile8(samples+i, coefficients, output+i, count);
@@ -523,13 +585,13 @@ void kda_fir_f32(const kda_fir_instance_f32 *S, const float32_t *pSrc,
         if (S->num_taps == 2U) { fir_tiny2(S,pSrc,pDst,blockSize); }
         else if (S->num_taps == 3U) { fir_tiny3(S,pSrc,pDst,blockSize); }
         else { fir_tiny4(S,pSrc,pDst,blockSize); }
-    } else if (blockSize <= 8U) { fir_short(S,pSrc,pDst,blockSize); }
-    else if (S->num_taps <= 8U) {
+    } else if (S->num_taps <= 8U) {
         if (S->num_taps == 5U) { fir_fixed5(S,pSrc,pDst,blockSize); }
         else if (S->num_taps == 6U) { fir_fixed6(S,pSrc,pDst,blockSize); }
         else if (S->num_taps == 7U) { fir_fixed7(S,pSrc,pDst,blockSize); }
         else { fir_fixed8(S,pSrc,pDst,blockSize); }
     }
+    else if (blockSize < 8U) { fir_short(S,pSrc,pDst,blockSize); }
     else if (S->num_taps <= 32U) { fir_medium(S,pSrc,pDst,blockSize); }
     else { fir_window(S,pSrc,pDst,blockSize); }
 }

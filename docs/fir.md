@@ -92,13 +92,13 @@ tail loops. N=2..4 also has a separate constant-tap helper for each count.
 These specializations do not change storage or initialization; next stays zero
 for N<=32.
 
-For N>4 and B<=8, a separate helper appends the complete short block and computes
+For N>8 and B<8, a separate helper appends the complete short block and computes
 two output dot products together, sharing each four-tap coefficient load. All
 tap loads and accumulations are tail-predicated; an odd output uses one dot
 product. It preserves the fixed history representation for N<=32 and the lazy
 offset representation for N>32, including calls with changing block sizes.
 
-For B>8, N=9..32 uses the same boundary/direct-input split, with E<=32, and the existing
+For B>=8, N=9..32 uses the same boundary/direct-input split, with E<=32, and the existing
 sixteen/eight-output tiles followed by predicated four-output tails. Its tap loop
 retains a runtime count to avoid spilling a large set of hoisted coefficients.
 Boundary append and final retention are bounded tail-predicated copies; short
