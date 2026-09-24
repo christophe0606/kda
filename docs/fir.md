@@ -65,7 +65,7 @@ candidate and CMSIS instance structs are not cast-compatible.
 ## Derivation and access bounds
 
 The design comes from the FIR equation and measured candidate costs. Prepared
-coefficients retain `{b[N-1],...,b[0]}`. For N>8, H=N-1 samples starting at
+coefficients retain `{b[N-1],...,b[0]}`. For N>32, H=N-1 samples starting at
 state.next hold oldest-to-newest history. Each chunk appends L<=128 inputs.
 If next+L>128, an ascending overlap-safe copy first moves those H samples to
 offset zero. Otherwise no compaction is needed. Output i is
@@ -87,7 +87,14 @@ inside processing. The existing valid-buffer byte-span precondition is exposed
 to the MVE compiler to prevent a hypothetical loop-index wrap and enable hardware
 tail loops. N=2..4 also has a separate constant-tap helper for each count.
 These specializations do not change storage or initialization; next stays zero
-for N<=8.
+for N<=32.
+
+N=9..32 uses the same boundary/direct-input split, with E<=32, and the existing
+sixteen/eight-output tiles followed by predicated four-output tails. Its tap loop
+retains a runtime count to avoid spilling a large set of hoisted coefficients.
+Boundary append and final retention are bounded tail-predicated copies; short
+blocks retain history with an ascending overlap-safe copy. The full N+127
+allocation remains sufficient since the largest boundary index is N+30.
 
 N=1 scales directly. N=2..4 retains up to three most-recent samples at window
 indices0..2 and uses vector shift-with-carry, followed by a scalar remainder;

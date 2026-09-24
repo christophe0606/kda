@@ -271,6 +271,81 @@ KDA_INLINE static void fir_fixed_outputs(const float32_t *__restrict samples,
 #endif
 }
 
+KDA_INLINE static void fir_medium_outputs(const float32_t *__restrict samples,
+    const float32_t *__restrict coefficients, float32_t *__restrict output,
+    uint32_t length, uint32_t count)
+{
+    uint32_t i = 0;
+#if KDA_FIR_MVE
+    __builtin_assume(length <= SIZE_MAX / sizeof(float32_t));
+#pragma clang loop unroll(disable)
+    for (; i + 16U <= length; i += 16U) {
+        fir_tile16(samples+i, coefficients, output+i, count);
+    }
+    if (i + 8U <= length) {
+        fir_tile8(samples+i, coefficients, output+i, count);
+        i += 8U;
+    }
+#pragma clang loop unroll(disable)
+    for (; i < length; i += 4U) {
+        const mve_pred16_t active = vctp32q(length-i);
+        float32x4_t sum = vdupq_n_f32(0.0f);
+        for (uint32_t k = 0; k < count; ++k) {
+            sum = vfmaq_n_f32(sum, vldrwq_z_f32(samples+i+k,active), coefficients[k]);
+        }
+        vstrwq_p_f32(output+i,sum,active);
+    }
+#else
+    for (; i < length; ++i) {
+        float32_t sum = 0.0f;
+        for (uint32_t k = 0; k < count; ++k) { sum += samples[i+k]*coefficients[k]; }
+        output[i] = sum;
+    }
+#endif
+}
+
+KDA_NOINLINE void fir_medium(const kda_fir_instance_f32 *S,
+    const float32_t *__restrict pSrc, float32_t *__restrict pDst,
+    uint32_t blockSize)
+{
+    const uint32_t count = S->num_taps;
+#if defined(__clang__)
+    __builtin_assume(count > 8U && count <= 32U);
+#endif
+    float32_t *__restrict history = S->state->history;
+    const float32_t *__restrict coefficients = S->prepared;
+    const uint32_t prefix = count - 1U;
+    const uint32_t boundary = (prefix + 3U) & ~3U;
+    const uint32_t edge = blockSize < boundary ? blockSize : boundary;
+#if KDA_FIR_MVE
+#pragma clang loop unroll(disable)
+    for (uint32_t i = 0; i < edge; i += 4U) {
+        const mve_pred16_t active = vctp32q(edge-i);
+        vstrwq_p_f32(history+prefix+i, vldrwq_z_f32(pSrc+i,active), active);
+    }
+#else
+    for (uint32_t i = 0; i < edge; ++i) { history[prefix+i] = pSrc[i]; }
+#endif
+    fir_medium_outputs(history, coefficients, pDst, edge, count);
+    if (blockSize > edge) {
+        fir_medium_outputs(pSrc+edge-prefix, coefficients, pDst+edge,
+                           blockSize-edge, count);
+    }
+    if (blockSize >= prefix) {
+#if KDA_FIR_MVE
+#pragma clang loop unroll(disable)
+        for (uint32_t k = 0; k < prefix; k += 4U) {
+            const mve_pred16_t active = vctp32q(prefix-k);
+            vstrwq_p_f32(history+k, vldrwq_z_f32(pSrc+blockSize-prefix+k,active), active);
+        }
+#else
+        for (uint32_t k = 0; k < prefix; ++k) { history[k] = pSrc[blockSize-prefix+k]; }
+#endif
+    } else {
+        for (uint32_t k = 0; k < prefix; ++k) { history[k] = history[blockSize+k]; }
+    }
+}
+
 KDA_INLINE static void fir_fixed(const kda_fir_instance_f32 *S,
     const float32_t *__restrict pSrc, float32_t *__restrict pDst,
     uint32_t blockSize, size_t count)
@@ -362,5 +437,6 @@ void kda_fir_f32(const kda_fir_instance_f32 *S, const float32_t *pSrc,
         else if (S->num_taps == 7U) { fir_fixed7(S,pSrc,pDst,blockSize); }
         else { fir_fixed8(S,pSrc,pDst,blockSize); }
     }
+    else if (S->num_taps <= 32U) { fir_medium(S,pSrc,pDst,blockSize); }
     else { fir_window(S,pSrc,pDst,blockSize); }
 }

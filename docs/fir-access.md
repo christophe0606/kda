@@ -2,14 +2,16 @@
 
 ## Current linear-window candidate
 
-Candidate `fir-direct8-v1` uses exactly N public/prepared coefficients and N+127
+Candidate `fir-direct32-v1` uses exactly N public/prepared coefficients and N+127
 work-window floats. Instance/state ABI sizes remain12/8 bytes; state.next is the
-history start in [0,128] for N>8, zero for N<=8. Buffers are disjoint and naturally aligned. B must form a valid
+history start in [0,128] for N>32, zero for N<=32. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.
 
 The source proof and candidate-only AC6 audit are tied to
 `runs/fir-r4/direct8-bound-numerical/candidate-only-disassembly.txt`. This compile/audit
 is not by itself a dynamic safety pass; fresh guard/control results are required.
+The medium-tap helper and modified dispatcher are additionally audited in
+`runs/fir-r4/direct32-loops-numerical/medium-disassembly.txt`.
 
 | Path | Access bounds and emitted implementation |
 |---|---|
@@ -21,6 +23,7 @@ is not by itself a dynamic safety pass; fresh guard/control results are required
 | N=5..8 boundary preparation | H=N-1, E=min(B,round_up(H,4))<=8. Predicated copies read source[0..E) and write window[H..H+E). Coefficients[0..N) are loaded exactly. Boundary outputs read window[i+k+j] with active i+j<E and k<N; maximum H+E-1<=14, within N+127. N=5 uses explicit VCTP/VPST for its one boundary vector; N=6..8 use DLSTP/LETP with count E. |
 | N=5..8 direct suffix | Exists only when B>E, so E>=H. Base is source+E-H, length B-E. DLSTP/LETP predicates all shifted loads and destination stores. Last active source index E-H+(B-E-1)+(N-1)=B-1; first index E-H>=0. Stores cover destination[E..B). The compiler assumption length<=SIZE_MAX/4 follows the public valid-float-object contract and prevents i+=4 from wrapping on the 32-bit target. |
 | N=5..8 retention | For B>=H, scalar/LDM loads read source[B-H..B) and store window[0..H). For B<H, ascending scalar load/store pairs copy window[B..B+H) to window[0..H); B=E, so all reads are initialized history or freshly appended input. Source is ahead of destination, preserving overlap. next remains zero. |
+| N=9..32 | Same direct-input proof, with E<=32 and maximum boundary index H+E-1<=N+30. Boundary/suffix full tiles use the eight/sixteen-output bounds below; four-output tails predicate every sample load/store. Coefficients are loaded only for k<N. Append and retention use DLSTP/LETP counts E and H; the forward overlapping retention loads each vector before storing it, so no later source element is overwritten. next remains zero. |
 | Lazy compaction | Let s=next. If s+L>128, ascending copy reads window[s..s+H) and writes window[0..H), then sets s=0. Old s<=128, so maximum read is N+126. Source is ahead; every vector loads before its store. Predicated copy count H. |
 | General input append | H=N-1; L=min(B_remaining,128). After compaction check s+L<=128. Reads source[0..L), writes window[s+H..s+H+L). Scalar or tail-predicated copy with count L. The following tile bounds are relative to window+s. |
 | General L<4 | Each output i<L accumulates taps in four lanes, with `dlstp.32` count N predicating coefficient/sample reads. The final active sample index is i+N-1<=H+L-1. Scalar horizontal reduction writes one output. |
@@ -32,7 +35,8 @@ is not by itself a dynamic safety pass; fresh guard/control results are required
 
 The public dispatcher tail-branches to scale, specialized tiny/fixed, or general
 window helpers. Scale has an8-byte frame; tiny2/3/4 have16/24/32-byte frames;
-fixed5/6/7/8 have32/48/48/56-byte frames; general window has96 bytes. None calls
+fixed5/6/7/8 have32/48/48/56-byte frames; medium has72 bytes and general window
+has96 bytes. None calls
 a runtime helper during processing. Specialized helper symbols have external
 linkage to preserve their four-register ABI and tail calls, but are not declared
 in the public header. The general window helper assumes N>4, guaranteed by the public
