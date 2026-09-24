@@ -135,7 +135,7 @@ KDA_NOINLINE void fir_short(const kda_fir_instance_f32 *S,
 {
     const uint32_t count = S->num_taps;
 #if defined(__clang__)
-    __builtin_assume(count > 4U && blockSize <= 8U);
+    __builtin_assume(count > 32U && blockSize < 8U);
 #endif
     const uint32_t prefix = count - 1U;
     float32_t *const history = S->state->history;
@@ -198,7 +198,7 @@ KDA_NOINLINE void fir_short(const kda_fir_instance_f32 *S,
 static inline void fir_tile8(const float32_t *samples,
     const float32_t *coefficients, float32_t *output, uint32_t taps)
 {
-    /* Callers have more than eight taps. Seed the first product, then
+    /* Callers have more than four taps. Seed the first product, then
      * overlap contiguous loads/arithmetic and final arithmetic/stores. */
     __asm volatile(
         "ldr r12, [%[coefficients]], #4\n"
@@ -224,6 +224,46 @@ static inline void fir_tile8(const float32_t *samples,
         "vstrw.32 q1, [%[output], #16]\n"
         : [samples] "+&r" (samples), [coefficients] "+&r" (coefficients)
         : [output] "r" (output), [taps] "r" (taps - 2U)
+        : "q0", "q1", "q2", "r12", "lr", "cc", "memory");
+}
+
+static inline void fir_tail8(const float32_t *samples,
+    const float32_t *coefficients, float32_t *output, uint32_t taps, uint32_t length)
+{
+    /* Callers have more than four taps and five to seven outputs. Seed the first product, then
+     * overlap contiguous loads/arithmetic and final arithmetic/stores. */
+    uint32_t saved_predicate;
+    __asm volatile(
+        "vmrs %[saved], p0\n"
+        "vctp.32 %[tail]\n"
+        "ldr r12, [%[coefficients]], #4\n"
+        "vldrw.u32 q2, [%[samples]], #4\n"
+        "vmul.f32 q0, q2, r12\n"
+        "vpst\n"
+        "vldrwt.u32 q2, [%[samples], #12]\n"
+        "vmul.f32 q1, q2, r12\n"
+        "dls lr, %[taps]\n"
+        ".p2align 2\n"
+        "1:\n"
+        "ldr r12, [%[coefficients]], #4\n"
+        "vldrw.u32 q2, [%[samples]], #4\n"
+        "vfma.f32 q0, q2, r12\n"
+        "vpst\n"
+        "vldrwt.u32 q2, [%[samples], #12]\n"
+        "vfma.f32 q1, q2, r12\n"
+        "le lr, 1b\n"
+        "ldr r12, [%[coefficients]], #4\n"
+        "vldrw.u32 q2, [%[samples]], #4\n"
+        "vfma.f32 q0, q2, r12\n"
+        "vstrw.32 q0, [%[output]]\n"
+        "vpst\n"
+        "vldrwt.u32 q2, [%[samples], #12]\n"
+        "vfma.f32 q1, q2, r12\n"
+        "vpst\n"
+        "vstrwt.32 q1, [%[output], #16]\n"
+        "vmsr p0, %[saved]\n"
+        : [saved] "=&r" (saved_predicate), [samples] "+&r" (samples), [coefficients] "+&r" (coefficients)
+        : [output] "r" (output), [taps] "r" (taps - 2U), [tail] "r" (length - 4U)
         : "q0", "q1", "q2", "r12", "lr", "cc", "memory");
 }
 
@@ -325,6 +365,48 @@ static inline void fir_tail16(const float32_t *samples,
         : "q0", "q1", "q2", "q3", "q4", "r12", "lr", "cc", "memory");
 }
 #endif
+
+
+KDA_NOINLINE void fir_small(const kda_fir_instance_f32 *S,
+    const float32_t *__restrict pSrc, float32_t *__restrict pDst,
+    uint32_t blockSize)
+{
+    const uint32_t count = S->num_taps;
+#if defined(__clang__)
+    __builtin_assume(count > 4U && count <= 32U && blockSize <= 8U);
+#endif
+    const uint32_t prefix = count - 1U;
+    float32_t *const history = S->state->history;
+    const float32_t *const coefficients = S->prepared;
+#if KDA_FIR_MVE
+    for (uint32_t i = 0; i < blockSize; i += 4U) {
+        const mve_pred16_t active = vctp32q(blockSize-i);
+        vstrwq_p_f32(history+prefix+i,vldrwq_z_f32(pSrc+i,active),active);
+    }
+    if (blockSize == 8U) { fir_tile8(history,coefficients,pDst,count); }
+    else if (blockSize > 4U) { fir_tail8(history,coefficients,pDst,count,blockSize); }
+    else {
+        const mve_pred16_t active = vctp32q(blockSize);
+        float32x4_t sum = vmulq_n_f32(vldrwq_z_f32(history,active),coefficients[0]);
+        for (uint32_t k = 1; k < count; ++k) {
+            sum = vfmaq_n_f32(sum,vldrwq_z_f32(history+k,active),coefficients[k]);
+        }
+        vstrwq_p_f32(pDst,sum,active);
+    }
+    for (uint32_t k = 0; k < prefix; k += 4U) {
+        const mve_pred16_t active = vctp32q(prefix-k);
+        vstrwq_p_f32(history+k,vldrwq_z_f32(history+blockSize+k,active),active);
+    }
+#else
+    for (uint32_t i = 0; i < blockSize; ++i) { history[prefix+i] = pSrc[i]; }
+    for (uint32_t i = 0; i < blockSize; ++i) {
+        float32_t sum = 0.0f;
+        for (uint32_t k = 0; k < count; ++k) { sum += coefficients[k]*history[i+k]; }
+        pDst[i] = sum;
+    }
+    for (uint32_t k = 0; k < prefix; ++k) { history[k] = history[blockSize+k]; }
+#endif
+}
 
 KDA_NOINLINE static void fir_window(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
@@ -469,7 +551,7 @@ KDA_NOINLINE void fir_medium(const kda_fir_instance_f32 *S,
     float32_t *__restrict history = S->state->history;
     const float32_t *__restrict coefficients = S->prepared;
     const uint32_t prefix = count - 1U;
-    const uint32_t boundary = (prefix + 3U) & ~3U;
+    const uint32_t boundary = (prefix + 15U) & ~15U;
     const uint32_t edge = blockSize < boundary ? blockSize : boundary;
 #if KDA_FIR_MVE
 #pragma clang loop unroll(disable)
@@ -585,6 +667,8 @@ void kda_fir_f32(const kda_fir_instance_f32 *S, const float32_t *pSrc,
         if (S->num_taps == 2U) { fir_tiny2(S,pSrc,pDst,blockSize); }
         else if (S->num_taps == 3U) { fir_tiny3(S,pSrc,pDst,blockSize); }
         else { fir_tiny4(S,pSrc,pDst,blockSize); }
+    } else if (S->num_taps <= 32U && blockSize <= 8U) {
+        fir_small(S,pSrc,pDst,blockSize);
     } else if (S->num_taps <= 8U) {
         if (S->num_taps == 5U) { fir_fixed5(S,pSrc,pDst,blockSize); }
         else if (S->num_taps == 6U) { fir_fixed6(S,pSrc,pDst,blockSize); }

@@ -2,7 +2,7 @@
 
 ## Current linear-window candidate
 
-Candidate `fir-tail16-v1` uses exactly N public/prepared coefficients and N+127
+Candidate `fir-small-v1` uses exactly N public/prepared coefficients and N+127
 work-window floats. Instance/state ABI sizes remain12/8 bytes; state.next is the
 history start in [0,128] for N>32, zero for N<=32. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.
@@ -18,6 +18,8 @@ The short-block helper, tiny2/tiny3 and current dispatcher are audited in
 `runs/fir-r4/paired-short-tail-numerical/changed-disassembly.txt`.
 The current medium/window helpers and dispatcher are audited in
 `runs/fir-r4/tail16-numerical/changed-disassembly.txt`.
+The small/short/medium helpers and dispatcher are now audited in
+`runs/fir-r4/small-numerical/changed-disassembly.txt`.
 
 | Path | Access bounds and emitted implementation |
 |---|---|
@@ -26,11 +28,12 @@ The current medium/window helpers and dispatcher are audited in
 | Init/reset clearing | Clears exactly 4*(N+127) bytes through the standard word-clear runtime helper; writes instance offsets0,4,8 and state offsets0,4. |
 | N=1 | Reads/writes only B source/destination elements; scalar low-overhead loop or `dlstp.32` scale with B-count tail. No history access. |
 | N=2..4 | Reads/writes only window[0..N-1), reads exactly N coefficients. Full four-sample vectors use shift-with-carry to insert streaming history; each carry becomes the last lane shifted out. One to three scalar remainder loads/stores stay within B. |
-| N>8, B<8 | Uses fixed history for N<=32 and lazy offset/compaction for N>32. Appends B inputs with DLSTP/LETP. Paired outputs share a coefficient vector; the tap loop uses DLSTP/LETP with count N to predicate all three loads and both FMAs. Active k+j<N bounds coefficient reads and sample index i+k+j<=B+N-2. An odd output has one predicated dot product. Scalar reductions store exactly B outputs. N<=32 retains H samples with ascending predicated load/store vectors; each vector is loaded before storing, safe for overlapping spans. N>32 advances next by B. All accesses obey the existing N+127 allocation. |
+| N>32, B<8 | Uses lazy offset/compaction. Appends B inputs with DLSTP/LETP. Paired outputs share a coefficient vector; the tap loop uses DLSTP/LETP with count N to predicate all three loads and both FMAs. Active k+j<N bounds coefficient reads and sample index i+k+j<=B+N-2. An odd output has one predicated dot product. Scalar reductions store exactly B outputs, then next advances by B. All accesses obey the existing N+127 allocation. |
+| N=5..32, B<=8 | Fixed-history helper appends exactly B input words with DLSTP/LETP. B<=4 uses one predicated output vector with exactly N scalar coefficient loads; B=8 uses the full eight-output tile; B=5..7 predicates only the second vector load/store under VCTP(B-4). Largest sample index N+B-2, no coefficient padding. Ascending DLSTP/LETP retention copies history[B..B+H) to history[0..H), loading each vector before its store. P0 is explicitly saved/restored around the masked8 asm, with no live VPT block crossing its boundary. |
 | N=5..8 boundary preparation | H=N-1, E=min(B,round_up(H,4))<=8. Predicated copies read source[0..E) and write window[H..H+E). Coefficients[0..N) are loaded exactly. Boundary outputs read window[i+k+j] with active i+j<E and k<N; maximum H+E-1<=14, within N+127. N=5 uses explicit VCTP/VPST for its one boundary vector; N=6..8 use DLSTP/LETP with count E. |
 | N=5..8 direct suffix | Exists only when B>E, so E>=H. Base is source+E-H, length B-E. DLSTP/LETP predicates all shifted loads and destination stores. Last active source index E-H+(B-E-1)+(N-1)=B-1; first index E-H>=0. Stores cover destination[E..B). The compiler assumption length<=SIZE_MAX/4 follows the public valid-float-object contract and prevents i+=4 from wrapping on the 32-bit target. |
 | N=5..8 retention | For B>=H, scalar/LDM loads read source[B-H..B) and store window[0..H). For B<H, ascending scalar load/store pairs copy window[B..B+H) to window[0..H); B=E, so all reads are initialized history or freshly appended input. Source is ahead of destination, preserving overlap. next remains zero. |
-| N=9..32 | Same direct-input proof, with E<=32 and maximum boundary index H+E-1<=N+30. Boundary/suffix full tiles use the eight/sixteen-output bounds below; four-output tails predicate every sample load/store. Coefficients are loaded only for k<N. Append and retention use DLSTP/LETP counts E and H; the forward overlapping retention loads each vector before storing it, so no later source element is overwritten. next remains zero. |
+| N=9..32, B>8 | Same direct-input proof, now E=min(B,round_up(H,16))<=32 and maximum boundary index H+E-1<=N+30. Boundary/suffix full tiles use the eight/sixteen-output bounds below; four-output tails predicate every sample load/store. Coefficients are loaded only for k<N. Append and retention use DLSTP/LETP counts E and H; the forward overlapping retention loads each vector before storing it, so no later source element is overwritten. next remains zero. |
 | Lazy compaction | Let s=next. If s+L>128, ascending copy reads window[s..s+H) and writes window[0..H), then sets s=0. Old s<=128, so maximum read is N+126. Source is ahead; every vector loads before its store. Predicated copy count H. |
 | General input append | H=N-1; L=min(B_remaining,128). After compaction check s+L<=128. Reads source[0..L), writes window[s+H..s+H+L). Scalar or tail-predicated copy with count L. The following tile bounds are relative to window+s. |
 | General L<4 | Each output i<L accumulates taps in four lanes, with `dlstp.32` count N predicating coefficient/sample reads. The final active sample index is i+N-1<=H+L-1. Scalar horizontal reduction writes one output. |
@@ -43,8 +46,8 @@ The current medium/window helpers and dispatcher are audited in
 
 The public dispatcher tail-branches to scale, specialized tiny/fixed, or general
 window helpers. Scale has an8-byte frame; tiny2/3/4 have16/24/32-byte frames;
-fixed5/6/7/8 have32/48/48/56-byte frames; medium has80 bytes and general window
-has104 bytes; short-block has48 bytes. None calls
+fixed5/6/7/8 have32/48/48/56-byte frames; medium has72 bytes and general window
+has104 bytes; paired short-block has36 bytes and small fixed-history has28 bytes. None calls
 a runtime helper during processing. Specialized helper symbols have external
 linkage to preserve their four-register ABI and tail calls, but are not declared
 in the public header. The general window helper assumes N>4, guaranteed by the public
@@ -59,7 +62,7 @@ clobbered. q4 is ABI-preserved by the emitted d8/d9 push/pop. No gather loads
 are used. The tail retains explicit VPT predication.
 Each full tile now seeds its accumulators with coefficient[0] multiplication,
 executes N-2 middle taps in DLS/LE, then applies coefficient[N-1] and immediately
-stores each completed output vector. All callers have N>8, so the middle count
+stores each completed output vector. All callers have N>4, so the middle count
 is positive. The first/middle/final tap indices partition exactly [0,N); the
 existing maximum offsets are unchanged. Early stores are safe because source,
 coefficients, work and destination objects are disjoint. This reduces explicit
