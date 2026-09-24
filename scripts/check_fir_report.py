@@ -55,7 +55,7 @@ def check(profile, capture, output):
             assert summarize(profile,target)['errors'], name
     with contextlib.redirect_stdout(io.StringIO()):
         good = summarize(profile,capture)
-    assert good['qualified'], 'Positive control must qualify before testing pair rejection'
+    assert good['qualified'], {k:v for k,v in good.items() if k not in ('cases','metadata')}
     assert compare(good,good)['qualified_pair']
     for name in ('missing_case','wrong_identity','changed_reps','drift','parity'):
         changed = copy.deepcopy(good)

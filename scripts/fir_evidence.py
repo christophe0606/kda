@@ -43,11 +43,13 @@ def elf_bytes(path, address, length):
     data = path.read_bytes()
     if data[:6] != b'\x7fELF\x01\x01':
         raise ValueError('Expected little-endian ELF32')
-    phoff = struct.unpack_from('<I', data, 28)[0]
-    phsize, count = struct.unpack_from('<HH', data, 42)
+    # AC6 scatter-loading program headers describe load spans; section headers
+    # retain execution addresses for code copied into ITCM during startup.
+    shoff = struct.unpack_from('<I', data, 32)[0]
+    shsize, count = struct.unpack_from('<HH', data, 46)
     for i in range(count):
-        kind, offset, virtual, _, size, _, _, _ = struct.unpack_from('<8I', data, phoff+i*phsize)
-        if kind == 1 and virtual <= address and address + length <= virtual + size:
+        _, kind, flags, virtual, offset, size, _, _, _, _ = struct.unpack_from('<10I', data, shoff+i*shsize)
+        if kind != 8 and flags & 2 and virtual <= address and address + length <= virtual + size:
             start = offset + address - virtual
             return data[start:start+length]
     raise ValueError(f'No file-backed ELF span {address:#x}+{length}')
