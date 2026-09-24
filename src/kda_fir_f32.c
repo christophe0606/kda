@@ -78,7 +78,9 @@ KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
 {
     float32_t *const history = S->state->history;
     const float32_t *const coefficients = S->prepared;
-    float32_t h0 = history[0], h1 = history[1], h2 = history[2];
+    float32_t h0 = history[0];
+    float32_t h1 = count >= 3U ? history[1] : 0;
+    float32_t h2 = count == 4U ? history[2] : 0;
     const float32_t b0 = coefficients[count-1U], b1 = coefficients[count-2U];
 #if KDA_FIR_MVE
     uint32_t c0, c1, c2;
@@ -122,7 +124,74 @@ KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
             h2 = h1; h1 = h0; h0 = x;
         }
     }
-    history[0] = h0; history[1] = h1; history[2] = h2;
+    history[0] = h0;
+    if (count >= 3U) { history[1] = h1; }
+    if (count == 4U) { history[2] = h2; }
+}
+
+KDA_NOINLINE void fir_short(const kda_fir_instance_f32 *S,
+    const float32_t *__restrict pSrc, float32_t *__restrict pDst,
+    uint32_t blockSize)
+{
+    const uint32_t count = S->num_taps;
+#if defined(__clang__)
+    __builtin_assume(count > 4U && blockSize <= 8U);
+#endif
+    const uint32_t prefix = count - 1U;
+    float32_t *const history = S->state->history;
+    const float32_t *const coefficients = S->prepared;
+    size_t offset = count > 32U ? S->state->next : 0U;
+    if (offset + blockSize > KDA_FIR_CHUNK) {
+        for (uint32_t k = 0; k < prefix; ++k) { history[k] = history[offset+k]; }
+        offset = 0;
+    }
+    float32_t *const window = history + offset;
+#if KDA_FIR_MVE
+    for (uint32_t i = 0; i < blockSize; i += 4U) {
+        const mve_pred16_t active = vctp32q(blockSize-i);
+        vstrwq_p_f32(window+prefix+i,vldrwq_z_f32(pSrc+i,active),active);
+    }
+#else
+    for (uint32_t i = 0; i < blockSize; ++i) { window[prefix+i] = pSrc[i]; }
+#endif
+    uint32_t i = 0;
+#if KDA_FIR_MVE
+#pragma clang loop unroll(disable)
+    for (; i + 1U < blockSize; i += 2U) {
+        float32x4_t a = vdupq_n_f32(0.0f), b = vdupq_n_f32(0.0f);
+        for (uint32_t k = 0; k < count; k += 4U) {
+            const mve_pred16_t active = vctp32q(count-k);
+            const float32x4_t c = vldrwq_z_f32(coefficients+k,active);
+            a = vfmaq_m_f32(a,c,vldrwq_z_f32(window+i+k,active),active);
+            b = vfmaq_m_f32(b,c,vldrwq_z_f32(window+i+1U+k,active),active);
+        }
+        pDst[i] = (vgetq_lane_f32(a,0)+vgetq_lane_f32(a,1))+
+                  (vgetq_lane_f32(a,2)+vgetq_lane_f32(a,3));
+        pDst[i+1U] = (vgetq_lane_f32(b,0)+vgetq_lane_f32(b,1))+
+                     (vgetq_lane_f32(b,2)+vgetq_lane_f32(b,3));
+    }
+    if (i < blockSize) {
+        float32x4_t a = vdupq_n_f32(0.0f);
+        for (uint32_t k = 0; k < count; k += 4U) {
+            const mve_pred16_t active = vctp32q(count-k);
+            a = vfmaq_f32(a,vldrwq_z_f32(coefficients+k,active),
+                           vldrwq_z_f32(window+i+k,active));
+        }
+        pDst[i] = (vgetq_lane_f32(a,0)+vgetq_lane_f32(a,1))+
+                  (vgetq_lane_f32(a,2)+vgetq_lane_f32(a,3));
+    }
+#else
+    for (; i < blockSize; ++i) {
+        float32_t sum = 0.0f;
+        for (uint32_t k = 0; k < count; ++k) { sum += coefficients[k]*window[i+k]; }
+        pDst[i] = sum;
+    }
+#endif
+    if (count > 32U) { S->state->next = offset + blockSize; }
+    else {
+        /* Ascending copy is safe even when the two history spans overlap. */
+        for (uint32_t k = 0; k < prefix; ++k) { history[k] = history[blockSize+k]; }
+    }
 }
 
 #if KDA_FIR_MVE
@@ -454,7 +523,8 @@ void kda_fir_f32(const kda_fir_instance_f32 *S, const float32_t *pSrc,
         if (S->num_taps == 2U) { fir_tiny2(S,pSrc,pDst,blockSize); }
         else if (S->num_taps == 3U) { fir_tiny3(S,pSrc,pDst,blockSize); }
         else { fir_tiny4(S,pSrc,pDst,blockSize); }
-    } else if (S->num_taps <= 8U) {
+    } else if (blockSize <= 8U) { fir_short(S,pSrc,pDst,blockSize); }
+    else if (S->num_taps <= 8U) {
         if (S->num_taps == 5U) { fir_fixed5(S,pSrc,pDst,blockSize); }
         else if (S->num_taps == 6U) { fir_fixed6(S,pSrc,pDst,blockSize); }
         else if (S->num_taps == 7U) { fir_fixed7(S,pSrc,pDst,blockSize); }
