@@ -106,6 +106,36 @@ KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
         vstrwq_f32(pDst,sum);
         pSrc += 4; pDst += 4; blockSize -= 4;
     }
+    if (blockSize == 0U) {
+        memcpy(history,&c0,4);
+        if (count >= 3U) { memcpy(history+1,&c1,4); }
+        if (count == 4U) { memcpy(history+2,&c2,4); }
+        return;
+    }
+    if (count >= 3U && blockSize >= 2U) {
+        /* Only two or three lanes are live. Shifted-out inactive lanes do
+         * not represent history; retain the last valid inputs explicitly. */
+        const uint32_t previous = c0;
+        const mve_pred16_t active = vctp32q(blockSize);
+        const float32x4_t current = vldrwq_z_f32(pSrc,active);
+        float32x4_t sum = vmulq_n_f32(current,b0);
+        uint32x4_t delayed = vshlcq_u32(vreinterpretq_u32_f32(current),&c0,32);
+        sum = vfmaq_n_f32(sum,vreinterpretq_f32_u32(delayed),b1);
+        delayed = vshlcq_u32(delayed,&c1,32);
+        sum = vfmaq_n_f32(sum,vreinterpretq_f32_u32(delayed),b2);
+        if (count == 4U) {
+            delayed = vshlcq_u32(delayed,&c2,32);
+            sum = vfmaq_n_f32(sum,vreinterpretq_f32_u32(delayed),b3);
+        }
+        vstrwq_p_f32(pDst,sum,active);
+        history[0] = pSrc[blockSize-1U];
+        history[1] = pSrc[blockSize-2U];
+        if (count == 4U) {
+            if (blockSize == 3U) { history[2] = pSrc[0]; }
+            else { memcpy(history+2,&previous,4); }
+        }
+        return;
+    }
     memcpy(&h0,&c0,4); memcpy(&h1,&c1,4); memcpy(&h2,&c2,4);
 #endif
     if (count == 2U) {
@@ -230,11 +260,12 @@ static inline void fir_tile8(const float32_t *samples,
         : "q0", "q1", "q2", "r12", "lr", "cc", "memory");
 }
 
-static inline void fir_tail8(const float32_t *samples,
+static inline void fir_tail8_window(const float32_t *samples,
     const float32_t *coefficients, float32_t *output, uint32_t taps, uint32_t length)
 {
-    /* Callers have more than four taps and five to seven outputs. Seed the first product, then
-     * overlap contiguous loads/arithmetic and final arithmetic/stores. */
+    /* Only for the initialized work allocation, with at least taps+7 floats.
+     * Extra output lanes may read its slack; the final store stays predicated.
+     * Never use this helper directly on an exactly sized caller input. */
     uint32_t saved_predicate;
     __asm volatile(
         "vmrs %[saved], p0\n"
@@ -242,8 +273,7 @@ static inline void fir_tail8(const float32_t *samples,
         "ldr r12, [%[coefficients]], #4\n"
         "vldrw.u32 q2, [%[samples]], #4\n"
         "vmul.f32 q0, q2, r12\n"
-        "vpst\n"
-        "vldrwt.u32 q2, [%[samples], #12]\n"
+        "vldrw.u32 q2, [%[samples], #12]\n"
         "vmul.f32 q1, q2, r12\n"
         "dls lr, %[taps]\n"
         ".p2align 2\n"
@@ -251,16 +281,14 @@ static inline void fir_tail8(const float32_t *samples,
         "ldr r12, [%[coefficients]], #4\n"
         "vldrw.u32 q2, [%[samples]], #4\n"
         "vfma.f32 q0, q2, r12\n"
-        "vpst\n"
-        "vldrwt.u32 q2, [%[samples], #12]\n"
+        "vldrw.u32 q2, [%[samples], #12]\n"
         "vfma.f32 q1, q2, r12\n"
         "le lr, 1b\n"
         "ldr r12, [%[coefficients]], #4\n"
         "vldrw.u32 q2, [%[samples]], #4\n"
         "vfma.f32 q0, q2, r12\n"
         "vstrw.32 q0, [%[output]]\n"
-        "vpst\n"
-        "vldrwt.u32 q2, [%[samples], #12]\n"
+        "vldrw.u32 q2, [%[samples], #12]\n"
         "vfma.f32 q1, q2, r12\n"
         "vpst\n"
         "vstrwt.32 q1, [%[output], #16]\n"
@@ -387,12 +415,14 @@ KDA_NOINLINE void fir_small(const kda_fir_instance_f32 *S,
         vstrwq_p_f32(history+prefix+i,vldrwq_z_f32(pSrc+i,active),active);
     }
     if (blockSize == 8U) { fir_tile8(history,coefficients,pDst,count); }
-    else if (blockSize > 4U) { fir_tail8(history,coefficients,pDst,count,blockSize); }
+    else if (blockSize > 4U) { fir_tail8_window(history,coefficients,pDst,count,blockSize); }
     else {
         const mve_pred16_t active = vctp32q(blockSize);
-        float32x4_t sum = vmulq_n_f32(vldrwq_z_f32(history,active),coefficients[0]);
+        /* All lanes read the initialized N+127 work allocation. Only the
+         * caller-facing output store needs the block-size predicate. */
+        float32x4_t sum = vmulq_n_f32(vldrwq_f32(history),coefficients[0]);
         for (uint32_t k = 1; k < count; ++k) {
-            sum = vfmaq_n_f32(sum,vldrwq_z_f32(history+k,active),coefficients[k]);
+            sum = vfmaq_n_f32(sum,vldrwq_f32(history+k),coefficients[k]);
         }
         vstrwq_p_f32(pDst,sum,active);
     }

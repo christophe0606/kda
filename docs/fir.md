@@ -46,6 +46,9 @@ function invokes that pointer. Helpers still dispatch on the current block size
 where necessary, so initialization does not fix the block size. Callers must not
 overwrite initialized fields. Reinitialization rebuilds the helper choice, while
 reset preserves it. Prepared coefficients still use the public order.
+Small-block kernels may compute discarded output lanes using initialized slack
+inside the N+127 work allocation. Input copies and output stores remain bounded
+by the caller's exact B-element buffers; no coefficient padding is required.
 Null pointers, zero taps or insufficient capacities return 0 **before any writes**,
 leaving the instance, state, prepared buffer and history unchanged. Disjoint valid
 objects are a caller precondition, not a runtime overlap-detection feature.
