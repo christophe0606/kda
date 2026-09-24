@@ -75,6 +75,9 @@ Sixteen outputs use four accumulators sharing each coefficient. Owned hardware
 loops interleave contiguous vector loads and arithmetic; an eight-output tile
 and predicated four-lane tail cover the remainder. Blocks shorter than four use
 tap-wise vector dots. No gather-load latency assumption is used.
+Full tiles initialize from the first product, accumulate the N-2 middle taps,
+and interleave final-tap arithmetic with stores. This changes scheduling without
+changing the logical sample/coefficient ranges or allocation contract.
 
 N=5..8 retains H=N-1 oldest-to-newest samples at window[0..H). It copies only
 E=min(B,round_up(H,4)) initial input samples after that history and computes the

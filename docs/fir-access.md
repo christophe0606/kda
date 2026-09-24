@@ -2,7 +2,7 @@
 
 ## Current linear-window candidate
 
-Candidate `fir-direct32-v1` uses exactly N public/prepared coefficients and N+127
+Candidate `fir-seeded-v1` uses exactly N public/prepared coefficients and N+127
 work-window floats. Instance/state ABI sizes remain12/8 bytes; state.next is the
 history start in [0,128] for N>32, zero for N<=32. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.
@@ -12,6 +12,8 @@ The source proof and candidate-only AC6 audit are tied to
 is not by itself a dynamic safety pass; fresh guard/control results are required.
 The medium-tap helper and modified dispatcher are additionally audited in
 `runs/fir-r4/direct32-loops-numerical/medium-disassembly.txt`.
+The current seeded tiles, containing medium/general helpers and dispatcher,
+are audited in `runs/fir-r4/seeded-numerical/changed-disassembly.txt`.
 
 | Path | Access bounds and emitted implementation |
 |---|---|
@@ -35,7 +37,7 @@ The medium-tap helper and modified dispatcher are additionally audited in
 
 The public dispatcher tail-branches to scale, specialized tiny/fixed, or general
 window helpers. Scale has an8-byte frame; tiny2/3/4 have16/24/32-byte frames;
-fixed5/6/7/8 have32/48/48/56-byte frames; medium has72 bytes and general window
+fixed5/6/7/8 have32/48/48/56-byte frames; medium has80 bytes and general window
 has96 bytes. None calls
 a runtime helper during processing. Specialized helper symbols have external
 linkage to preserve their four-register ABI and tail calls, but are not declared
@@ -49,6 +51,14 @@ and no horizontal reduction. All asm-modified vector/GPR/condition registers
 are clobbered; advancing pointers are early-clobber operands and memory is
 clobbered. q4 is ABI-preserved by the emitted d8/d9 push/pop. No gather loads
 are used. The tail retains explicit VPT predication.
+Each full tile now seeds its accumulators with coefficient[0] multiplication,
+executes N-2 middle taps in DLS/LE, then applies coefficient[N-1] and immediately
+stores each completed output vector. All callers have N>8, so the middle count
+is positive. The first/middle/final tap indices partition exactly [0,N); the
+existing maximum offsets are unchanged. Early stores are safe because source,
+coefficients, work and destination objects are disjoint. This reduces explicit
+clearing and exposes final arithmetic/store overlap; performance still requires
+whole-call measurement, including the larger medium-helper frame.
 No change to source/coefficient arrays occurs during
 processing.
 

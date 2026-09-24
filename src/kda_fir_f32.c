@@ -129,10 +129,14 @@ KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
 static inline void fir_tile8(const float32_t *samples,
     const float32_t *coefficients, float32_t *output, uint32_t taps)
 {
-    /* Interleave loads and arithmetic to overlap their 64-bit beats. */
+    /* Callers have more than eight taps. Seed the first product, then
+     * overlap contiguous loads/arithmetic and final arithmetic/stores. */
     __asm volatile(
-        "vmov.i32 q0, #0\n"
-        "vmov.i32 q1, #0\n"
+        "ldr r12, [%[coefficients]], #4\n"
+        "vldrw.u32 q2, [%[samples]], #4\n"
+        "vmul.f32 q0, q2, r12\n"
+        "vldrw.u32 q2, [%[samples], #12]\n"
+        "vmul.f32 q1, q2, r12\n"
         "dls lr, %[taps]\n"
         ".p2align 2\n"
         "1:\n"
@@ -142,10 +146,15 @@ static inline void fir_tile8(const float32_t *samples,
         "vldrw.u32 q2, [%[samples], #12]\n"
         "vfma.f32 q1, q2, r12\n"
         "le lr, 1b\n"
+        "ldr r12, [%[coefficients]], #4\n"
+        "vldrw.u32 q2, [%[samples]], #4\n"
+        "vfma.f32 q0, q2, r12\n"
         "vstrw.32 q0, [%[output]]\n"
+        "vldrw.u32 q2, [%[samples], #12]\n"
+        "vfma.f32 q1, q2, r12\n"
         "vstrw.32 q1, [%[output], #16]\n"
         : [samples] "+&r" (samples), [coefficients] "+&r" (coefficients)
-        : [output] "r" (output), [taps] "r" (taps)
+        : [output] "r" (output), [taps] "r" (taps - 2U)
         : "q0", "q1", "q2", "r12", "lr", "cc", "memory");
 }
 
@@ -153,10 +162,15 @@ static inline void fir_tile16(const float32_t *samples,
     const float32_t *coefficients, float32_t *output, uint32_t taps)
 {
     __asm volatile(
-        "vmov.i32 q0, #0\n"
-        "vmov.i32 q1, #0\n"
-        "vmov.i32 q2, #0\n"
-        "vmov.i32 q3, #0\n"
+        "ldr r12, [%[coefficients]], #4\n"
+        "vldrw.u32 q4, [%[samples]], #4\n"
+        "vmul.f32 q0, q4, r12\n"
+        "vldrw.u32 q4, [%[samples], #12]\n"
+        "vmul.f32 q1, q4, r12\n"
+        "vldrw.u32 q4, [%[samples], #28]\n"
+        "vmul.f32 q2, q4, r12\n"
+        "vldrw.u32 q4, [%[samples], #44]\n"
+        "vmul.f32 q3, q4, r12\n"
         "dls lr, %[taps]\n"
         ".p2align 2\n"
         "1:\n"
@@ -170,12 +184,21 @@ static inline void fir_tile16(const float32_t *samples,
         "vldrw.u32 q4, [%[samples], #44]\n"
         "vfma.f32 q3, q4, r12\n"
         "le lr, 1b\n"
+        "ldr r12, [%[coefficients]], #4\n"
+        "vldrw.u32 q4, [%[samples]], #4\n"
+        "vfma.f32 q0, q4, r12\n"
         "vstrw.32 q0, [%[output]]\n"
+        "vldrw.u32 q4, [%[samples], #12]\n"
+        "vfma.f32 q1, q4, r12\n"
         "vstrw.32 q1, [%[output], #16]\n"
+        "vldrw.u32 q4, [%[samples], #28]\n"
+        "vfma.f32 q2, q4, r12\n"
         "vstrw.32 q2, [%[output], #32]\n"
+        "vldrw.u32 q4, [%[samples], #44]\n"
+        "vfma.f32 q3, q4, r12\n"
         "vstrw.32 q3, [%[output], #48]\n"
         : [samples] "+&r" (samples), [coefficients] "+&r" (coefficients)
-        : [output] "r" (output), [taps] "r" (taps)
+        : [output] "r" (output), [taps] "r" (taps - 2U)
         : "q0", "q1", "q2", "q3", "q4", "r12", "lr", "cc", "memory");
 }
 #endif
