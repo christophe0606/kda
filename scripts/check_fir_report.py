@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import shutil
 import struct
+import copy
+from compare_fir import compare
 from report_fir import summarize
 
 
@@ -17,6 +19,7 @@ def check(profile, capture, output):
         'false_tcm': {7:0}, 'incomplete': {4:322}, 'frozen_counter': {22:0},
         'fault': {65:1}, 'missing_case': {66:2}, 'overflow': {70+31:0x10000000},
         'wrong_code_region': {26:0x80201001}, 'wrong_data_region': {31:0x02000000},
+        'wrong_image_identity': {31397:0},
     }
     for name, mutations in changes.items():
         target = output / name
@@ -27,6 +30,7 @@ def check(profile, capture, output):
         record = dict(original, bytes=list(struct.pack('<'+'I'*len(altered), *altered)))
         (target / 'memory.json').write_text(json.dumps(record))
         shutil.copyfile(capture / 'load.log', target / 'load.log')
+        shutil.copyfile(capture / 'image-readback.json', target / 'image-readback.json')
         try:
             with contextlib.redirect_stdout(io.StringIO()):
                 result = summarize(profile, target)
@@ -35,7 +39,35 @@ def check(profile, capture, output):
             rejected = True
         if not rejected:
             raise AssertionError('Failed to reject ' + name)
-    print(f'{len(changes)}/{len(changes)} invalid-evidence controls rejected')
+    for name in ('wrong_export_address','wrong_programmed_image'):
+        target = output/name
+        target.mkdir(exist_ok=True)
+        record = copy.deepcopy(original)
+        images = json.loads((capture/'image-readback.json').read_text())
+        if name == 'wrong_export_address':
+            record['address'] = hex(int(record['address'],0)+4)
+        else:
+            images['blocks'][0]['bytes'][0] ^= 1
+        (target/'memory.json').write_text(json.dumps(record))
+        (target/'image-readback.json').write_text(json.dumps(images))
+        shutil.copyfile(capture/'load.log',target/'load.log')
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert summarize(profile,target)['errors'], name
+    with contextlib.redirect_stdout(io.StringIO()):
+        good = summarize(profile,capture)
+    assert good['qualified'], 'Positive control must qualify before testing pair rejection'
+    assert compare(good,good)['qualified_pair']
+    for name in ('missing_case','wrong_identity','changed_reps','drift','parity'):
+        changed = copy.deepcopy(good)
+        if name == 'missing_case': changed['cases'].pop()
+        elif name == 'wrong_identity': changed['metadata']['build_id'] = 'wrong'
+        elif name == 'changed_reps': changed['cases'][0]['repetitions'] *= 2
+        elif name == 'drift': changed['cases'][0]['candidate']['median_cycles'] *= 1.02
+        else: changed['cases'][0]['observed_parity'] = False
+        result = compare(good,changed)
+        if name == 'parity': assert not result['parity_both']
+        else: assert result['errors'], name
+    print(f'{len(changes)+7} invalid-evidence/pair controls rejected; positive pair control passed')
 
 
 if __name__ == '__main__':

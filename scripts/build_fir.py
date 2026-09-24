@@ -12,6 +12,8 @@ import re
 import shutil
 import subprocess
 import sys
+from fir_evidence import residency, sha
+from fir_call_audit import audit
 
 ROOT = Path(__file__).resolve().parents[1]
 MODES = {'demo': 0, 'numerical': 1, 'guard': 2, 'read-fault': 3,
@@ -38,17 +40,41 @@ def build(args):
     for name in ('CMSIS_PACK_ROOT', 'AC6_TOOLCHAIN_6_24_0'):
         env[name] = re.search(r'^      ' + name + r': (.+)$', config, re.M)[1].strip()
     toolbox = next(Path(p) for p in paths if 'cmsis-toolbox/bin' in p)
-    header = ('#ifndef KDA_FIR_PROFILE_H\n#define KDA_FIR_PROFILE_H\n'
-              '/* Selected by scripts/build_fir.py; archived with every image. */\n'
-              f'#define KDA_APP_FIR {MODES[args.mode]}\n'
-              f'#define KDA_FIR_TCM {int(args.tcm)}\n#endif\n')
-    (ROOT / 'src/fir_profile.h').write_text(header, encoding='utf-8')
     inputs = [p for directory in ('src', 'tests', 'board', 'M55_HE', 'scripts')
               for p in (ROOT / directory).rglob('*')
               if p.is_file() and p.suffix in ('.c', '.h', '.sct', '.yml', '.py')]
     inputs += [ROOT / p for p in ('kda.cproject.yml', 'kda.csolution.yml',
                                  '.cmsis/tools-environment.yml')]
     before = {p: digest(p) for p in set(inputs)}
+    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+    tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+    tracked = set(subprocess.check_output(['git', 'ls-files'], text=True).splitlines())
+    committed, dirty = {}, []
+    for path in sorted(before):
+        name = path.relative_to(ROOT).as_posix()
+        if name not in tracked:
+            # Machine environment/generated RTE inputs remain individually hashed.
+            if name.startswith(('src/', 'scripts/', 'tests/')):
+                dirty.append(name)
+            continue
+        original = subprocess.check_output(['git', 'show', f'{commit}:{name}'])
+        committed[name] = sha(original.replace(b'\r\n', b'\n'))
+        if sha(path.read_bytes().replace(b'\r\n', b'\n')) != committed[name]:
+            dirty.append(name)
+    if dirty and not args.allow_dirty:
+        raise ValueError('Commit build inputs first (or explicitly --allow-dirty for diagnostic builds): '+str(dirty))
+    recipe = {'inputs':{p.relative_to(ROOT).as_posix():h for p,h in before.items()},
+              'mode':args.mode, 'tcm':args.tcm, 'commit':commit, 'tree':tree}
+    build_id = sha(json.dumps(recipe, sort_keys=True).encode())
+    identity = ','.join('0x'+build_id[i:i+8]+'U' for i in range(0,64,8))
+    header = (f'#define KDA_APP_FIR {MODES[args.mode]}\n'
+              f'#define KDA_FIR_TCM {int(args.tcm)}\n'
+              '#define KDA_BUILD_ID {'+identity+'}\n')
+    generated = ROOT / 'runs/fir-generated/fir_build_config.h'
+    generated.parent.mkdir(parents=True, exist_ok=True)
+    generated.write_text(header, encoding='utf-8')
+    inputs.append(generated)
+    before[generated] = digest(generated)
     commands = [
         ('validation.log', [str(toolbox / 'csolution.exe'), 'convert',
                             'kda.csolution.yml', '--active', 'DevKit-E8@Release', '--no-update-rte']),
@@ -104,15 +130,27 @@ def build(args):
         selected = '\n'.join(line for line in sections.splitlines()
                              if any(symbol in line for symbol in symbols)) + '\n'
         (destination / (object_name + '.sections.txt')).write_text(selected)
+        artifact_hashes[object_name + '.sections.txt'] = digest(destination / (object_name + '.sections.txt'))
         object_copy = destination / obj.relative_to(ROOT)
         object_copy.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(obj, object_copy)
         artifact_hashes[obj.relative_to(ROOT).as_posix()] = digest(obj)
     manifest = {'mode': args.mode, 'mode_value': MODES[args.mode], 'tcm': args.tcm,
                 'target': 'DevKit-E8@Release', 'commands': commands,
-                'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+                'source_commit': commit, 'source_tree':tree,
+                'committed_inputs_sha256_lf':committed, 'dirty_inputs':dirty,
+                'build_id':build_id,
                 'inputs_sha256': source_hashes, 'artifacts_sha256': artifact_hashes,
                 'source_manifest_sha256': hashlib.sha256(json.dumps(source_hashes, sort_keys=True).encode()).hexdigest()}
+    if args.mode == 'benchmark' and args.tcm:
+        manifest['residency'] = residency(destination / 'out/kda/DevKit-E8/Release/kda.axf.map')
+        allowed = 'fir_batch_candidate,fir_batch_baseline,fir_batch_empty,fir_batch_control'
+        disassembly = subprocess.check_output([str(llvm/'llvm-objdump.exe'),
+            '--disassemble-symbols='+allowed, '--triple=thumbv8.1m.main-none-eabi',
+            '--mattr=+mve.fp,+lob',str(destination/'out/kda/DevKit-E8/Release/kda.axf')],text=True)
+        (destination/'batch-call-audit.txt').write_text(disassembly)
+        manifest['call_audit'] = audit(disassembly)
+        artifact_hashes['batch-call-audit.txt'] = digest(destination/'batch-call-audit.txt')
     (destination / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     # Conversion can regenerate tasks. Restore log capture for the supported MCP launch.
     task_path = ROOT / '.vscode/tasks.json'
@@ -137,4 +175,5 @@ if __name__ == '__main__':
     parser.add_argument('mode', choices=MODES)
     parser.add_argument('--tcm', action='store_true')
     parser.add_argument('--output', required=True)
+    parser.add_argument('--allow-dirty', action='store_true', help='Diagnostic builds only; report rejects acceptance')
     sys.exit(build(parser.parse_args()))

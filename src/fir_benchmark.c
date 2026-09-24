@@ -26,6 +26,23 @@ static float output[512] DTCM, baseline_output[516] DTCM;
 static kda_fir_state_f32 state DTCM;
 static kda_fir_instance_f32 candidate DTCM;
 static arm_fir_instance_f32 baseline DTCM;
+extern unsigned char Image$$ARM_LIB_STACK$$ZI$$Base[];
+extern unsigned char Image$$ARM_LIB_STACK$$ZI$$Limit[];
+
+/* Leaf routines use only caller-saved registers and never touch the stack.
+ * Paint unused space before each batch, then retain the lowest changed word.
+ * MSPLIM independently bounds allocations even if a stored word matches paint. */
+__attribute__((naked, noinline)) static void stack_paint(uint32_t *base)
+{
+    __asm volatile("mrs r1, msp\nmovw r2, #0xa55a\nmovt r2, #0xc33c\n"
+                   "1: cmp r0, r1\nbhs 2f\nstr r2, [r0], #4\nb 1b\n2: bx lr");
+}
+__attribute__((naked, noinline)) static uint32_t stack_scan(uint32_t *base)
+{
+    __asm volatile("mrs r1, msp\nmovw r2, #0xa55a\nmovt r2, #0xc33c\n"
+                   "1: cmp r0, r1\nbhs 2f\nldr r3, [r0]\ncmp r2, r3\n"
+                   "bne 2f\nadds r0, #4\nb 1b\n2: bx lr");
+}
 
 static void cycle_stop(void)
 {
@@ -71,10 +88,11 @@ static int record_placement(void)
     return valid && dtcm_object((void *)(uintptr_t)(__get_MSP() - 1024U), 1024U);
 }
 
-static uint32_t interval(fir_batch_fn function, uint32_t repetitions,
+__attribute__((noinline)) static uint32_t interval(fir_batch_fn function, uint32_t repetitions,
                          const void *instance, const float *src, float *dst,
                          uint32_t block, uint32_t *valid)
 {
+    stack_paint((uint32_t *)Image$$ARM_LIB_STACK$$ZI$$Base);
     cycle_stop();
     ARM_PMU_CYCCNT_Reset();
     ARM_PMU_Set_CNTR_OVS(CYCLE_BIT);
@@ -91,6 +109,8 @@ static uint32_t interval(fir_batch_fn function, uint32_t repetitions,
     const uint32_t overflow = ARM_PMU_Get_CNTR_OVS();
     const uint32_t elapsed = end - start;
     *valid &= end > start && elapsed < INTERVAL_LIMIT && !(overflow & CYCLE_BIT);
+    const uint32_t low = stack_scan((uint32_t *)Image$$ARM_LIB_STACK$$ZI$$Base);
+    if (low < kda_fir_benchmark.stack_low) { kda_fir_benchmark.stack_low = low; }
     return elapsed;
 }
 
@@ -184,7 +204,7 @@ void kda_fir_benchmark_run(void)
     volatile unsigned char *record = (volatile unsigned char *)&kda_fir_benchmark;
     for (size_t i = 0; i < sizeof kda_fir_benchmark; ++i) { record[i] = 0; }
     kda_fir_benchmark.magic = UINT32_C(0x504d5531);
-    kda_fir_benchmark.version = 1;
+    kda_fir_benchmark.version = 2;
     kda_fir_benchmark.bytes = sizeof kda_fir_benchmark;
     kda_fir_benchmark.phase = 1;
     kda_fir_benchmark.mode = KDA_APP_FIR;
@@ -201,6 +221,12 @@ void kda_fir_benchmark_run(void)
     kda_fir_benchmark.seed = UINT32_C(0x95e1a123);
     kda_fir_benchmark.warmup_calls = WARMUP;
     kda_fir_benchmark.maximum_interval = INTERVAL_LIMIT;
+    const uint32_t identity[8] = KDA_BUILD_ID;
+    for (unsigned i = 0; i < 8; ++i) { kda_fir_benchmark.build_id[i] = identity[i]; }
+    kda_fir_benchmark.stack_base = (uint32_t)(uintptr_t)Image$$ARM_LIB_STACK$$ZI$$Base;
+    kda_fir_benchmark.stack_top = (uint32_t)(uintptr_t)Image$$ARM_LIB_STACK$$ZI$$Limit;
+    kda_fir_benchmark.stack_low = __get_MSP();
+    kda_fir_benchmark.stack_limit = __get_MSPLIM();
     if (!record_placement() || !(PMU->TYPE & PMU_TYPE_CYCCNT_PRESENT_Msk)) {
         kda_fir_benchmark.failures = 1;
         kda_fir_benchmark.phase = 4;
@@ -226,7 +252,7 @@ void kda_fir_benchmark_run(void)
             volatile fir_bench_case *r = &kda_fir_benchmark.cases[bi*17U+ni];
             r->block = block; r->taps = n;
             fixtures(block, n);
-            uint32_t reps = 1;
+            uint32_t reps = 128;
             /* Target >=100k cycles for both calls; keep common repetitions. */
             while (reps < 32768U) {
                 const uint32_t a = interval(fir_batch_candidate, reps, &candidate, input, output, block, &valid);
@@ -238,6 +264,8 @@ void kda_fir_benchmark_run(void)
             for (unsigned batch = 0; batch < FIR_BATCHES && valid; ++batch) {
                 /* Reinitialize and warm equally; all preparation outside timing. */
                 fixtures(block, n);
+                kda_fir_benchmark.control_cycles[bi*17U+ni][batch] =
+                    interval(fir_batch_control, reps, &candidate, input, output, block, &valid);
                 r->empty[batch] = interval(fir_batch_empty, reps, &candidate, input, output, block, &valid);
                 if (batch & 1U) {
                     r->baseline[batch] = interval(fir_batch_baseline, reps, &baseline, baseline_input, baseline_output, block, &valid);

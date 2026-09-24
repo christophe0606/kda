@@ -224,8 +224,12 @@ Export `kda_fir_benchmark` through supported MCP memory reads only after complet
 Save `memory.json` with the starting `address` and complete byte array `bytes`.
 `scripts/report_fir.py --profile runs/my-build --capture runs/my-capture` checks
 metadata and reports medians, ranges, MAD and overhead diagnostics. Inclusive C
-is raw batch median divided by repetitions. Empty-loop subtraction is diagnostic
-only. Cases with empty-loop or endpoint overhead above 1%, or MAD above 1%, remain
+is raw batch median divided by repetitions. Each loop now contains 128 direct
+public calls, with assembly-identical candidate, comparator and ABI-empty call
+sites. A separate control uses the same prologue, epilogue and outer loop but
+omits the public calls. Its maximum raw cost bounds added harness overhead;
+the ABI-empty measurement separately includes required public-call cost.
+Cases with added harness overhead above 1%, or MAD above 1%, remain
 unresolved; repetitions cannot amortize per-call loop costs. An observed cycle
 comparison is not a qualified parity claim until every required gate passes.
 
@@ -236,6 +240,24 @@ no provenance-check errors and no cases exceeding 1% batch MAD. Both remain
 comparison shows the candidate slower in 282 cases in each capture. These are
 diagnostics for further harness work and optimization, not accepted parity or
 asymptotic results. Accepted cycle fields in `benchmark.csv` remain blank.
+
+The user subsequently authorized measurement-overhead subtraction where needed
+for small-cycle accuracy. Raw inclusive values remain primary when the added
+harness cost already meets the 1% gate. The report retains paired loop-control
+subtractions as diagnostics; accepting a corrected metric additionally requires
+calibration-sensitivity and noise evidence. It never subtracts FIR processing,
+dispatch, public call/return, argument setup or recurring state maintenance.
+
+New profiles archive an exact committed input tree plus an explicit generated
+mode overlay in `runs/fir-generated/`; diagnostic dirty builds are rejected by
+the acceptance checker. The runtime record carries the recipe fingerprint.
+Supported MCP readback must match both complete programmed images and all
+relocated timed code bytes, compared opaquely without instruction decoding.
+The report checks the export address/size, linker cross-reference closure,
+full code/data spans and observed stack watermark with MSPLIM bounds. This
+qualifies the executed matrix, not every possible input or an unknown indirect
+path. `compare_fir.py` enforces matching protocols/images/repetitions and <=1%
+between-capture drift for every case.
 
 Earlier harness attempts are retained: v1 overflowed the stack while zeroing a
 large volatile aggregate; v2 failed the stopped-counter probe; v3 failed the

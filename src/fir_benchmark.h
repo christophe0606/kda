@@ -7,6 +7,7 @@ typedef void (*fir_batch_fn)(uint32_t, const void *, const float *, float *, uin
 void fir_batch_candidate(uint32_t, const void *, const float *, float *, uint32_t);
 void fir_batch_baseline(uint32_t, const void *, const float *, float *, uint32_t);
 void fir_batch_empty(uint32_t, const void *, const float *, float *, uint32_t);
+void fir_batch_control(uint32_t, const void *, const float *, float *, uint32_t);
 
 typedef struct {
     uint32_t block, taps, repetitions, flags;
@@ -23,6 +24,9 @@ typedef struct {
     uint32_t saved_ctrl, saved_filter, saved_enable, saved_irq, saved_overflow;
     uint32_t saved_ccntr, restored, faults;
     fir_bench_case cases[FIR_CASES];
+    uint32_t build_id[8];
+    uint32_t stack_base, stack_top, stack_low, stack_limit;
+    uint32_t control_cycles[FIR_CASES][FIR_BATCHES];
 } fir_bench_result;
 extern volatile fir_bench_result kda_fir_benchmark;
 void kda_fir_benchmark_run(void);
