@@ -1,7 +1,7 @@
 # Copyright 2026 Arm Limited and/or its affiliates.
 # SPDX-License-Identifier: Apache-2.0
 solution:
-  created-for: CMSIS-Toolbox@2.14.1
+  created-for: CMSIS-Toolbox@2.15.0
   cdefault:
   compiler: AC6
 

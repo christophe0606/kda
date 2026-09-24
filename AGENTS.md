@@ -1,5 +1,7 @@
 # Project instructions
 
+Main tools used by the project are listed in .cmsis/tools-environment.yml
+It lists the tools used for building, for cmsis environment and for debugging.
 
 ## Rules
 
