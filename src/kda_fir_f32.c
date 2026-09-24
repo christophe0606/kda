@@ -10,8 +10,10 @@
 #endif
 #if defined(_MSC_VER)
 #define KDA_NOINLINE __declspec(noinline)
+#define KDA_INLINE __forceinline
 #else
 #define KDA_NOINLINE __attribute__((noinline))
+#define KDA_INLINE inline __attribute__((always_inline))
 #endif
 #if defined(KDA_FIR_REQUIRE_MVE) && !KDA_FIR_MVE
 #error "The target FIR candidate requires floating-point MVE"
@@ -71,10 +73,9 @@ KDA_NOINLINE static void fir_scale(const kda_fir_instance_f32 *S,
     for (uint32_t i = 0; i < blockSize; ++i) { pDst[i] = b0 * pSrc[i]; }
 }
 
-KDA_NOINLINE static void fir_tiny(const kda_fir_instance_f32 *S,
-    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize, size_t count)
 {
-    const size_t count = S->num_taps;
     float32_t *const history = S->state->history;
     const float32_t *const coefficients = S->prepared;
     float32_t h0 = history[0], h1 = history[1], h2 = history[2];
@@ -243,10 +244,109 @@ KDA_NOINLINE static void fir_window(const kda_fir_instance_f32 *S,
     S->state->next = offset;
 }
 
+KDA_INLINE static void fir_fixed(const kda_fir_instance_f32 *S,
+    const float32_t *__restrict pSrc, float32_t *__restrict pDst,
+    uint32_t blockSize, size_t count)
+{
+    float32_t *__restrict history = S->state->history;
+    const float32_t *__restrict coefficients = S->prepared;
+    const size_t prefix = count - 1U;
+    size_t offset = S->state->next;
+    while (blockSize != 0U) {
+        const uint32_t length = blockSize < KDA_FIR_CHUNK ? blockSize : KDA_FIR_CHUNK;
+        if (offset + length > KDA_FIR_CHUNK) {
+            for (size_t k = 0; k < prefix; ++k) { history[k] = history[offset+k]; }
+            offset = 0;
+        }
+        float32_t *const window = history + offset;
+#if KDA_FIR_MVE
+        for (uint32_t i = 0; i < length; i += 4U) {
+            const mve_pred16_t active = vctp32q(length-i);
+            vstrwq_p_f32(window+prefix+i, vldrwq_z_f32(pSrc+i,active), active);
+        }
+#pragma clang loop unroll(disable)
+        for (uint32_t i = 0; i < length; i += 4U) {
+            const mve_pred16_t active = vctp32q(length-i);
+            float32x4_t sum = vdupq_n_f32(0.0f);
+#pragma clang loop unroll(full)
+            for (size_t k = 0; k < count; ++k) {
+                sum = vfmaq_n_f32(sum, vldrwq_z_f32(window+i+k,active), coefficients[k]);
+            }
+            vstrwq_p_f32(pDst+i,sum,active);
+        }
+#else
+        for (uint32_t i = 0; i < length; ++i) { window[prefix+i] = pSrc[i]; }
+        for (uint32_t i = 0; i < length; ++i) {
+            float32_t sum = 0.0f;
+            for (size_t k = 0; k < count; ++k) { sum += window[i+k]*coefficients[k]; }
+            pDst[i] = sum;
+        }
+#endif
+        offset += length;
+        pSrc += length; pDst += length; blockSize -= length;
+    }
+    S->state->next = offset;
+}
+
+/* External linkage preserves the four-register ABI for dispatcher tail calls.
+ * These helper symbols are internal to this translation unit's implementation;
+ * only kda_fir_f32 is declared in the public processing interface. */
+KDA_NOINLINE void fir_tiny2(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    fir_tiny(S, pSrc, pDst, blockSize, 2U);
+}
+
+KDA_NOINLINE void fir_tiny3(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    fir_tiny(S, pSrc, pDst, blockSize, 3U);
+}
+
+KDA_NOINLINE void fir_tiny4(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    fir_tiny(S, pSrc, pDst, blockSize, 4U);
+}
+
+KDA_NOINLINE void fir_fixed5(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    fir_fixed(S, pSrc, pDst, blockSize, 5U);
+}
+
+KDA_NOINLINE void fir_fixed6(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    fir_fixed(S, pSrc, pDst, blockSize, 6U);
+}
+
+KDA_NOINLINE void fir_fixed7(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    fir_fixed(S, pSrc, pDst, blockSize, 7U);
+}
+
+KDA_NOINLINE void fir_fixed8(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    fir_fixed(S, pSrc, pDst, blockSize, 8U);
+}
+
+
 void kda_fir_f32(const kda_fir_instance_f32 *S, const float32_t *pSrc,
                  float32_t *pDst, uint32_t blockSize)
 {
     if (S->num_taps == 1U) { fir_scale(S,pSrc,pDst,blockSize); }
-    else if (S->num_taps <= 4U) { fir_tiny(S,pSrc,pDst,blockSize); }
+    else if (S->num_taps <= 4U) {
+        if (S->num_taps == 2U) { fir_tiny2(S,pSrc,pDst,blockSize); }
+        else if (S->num_taps == 3U) { fir_tiny3(S,pSrc,pDst,blockSize); }
+        else { fir_tiny4(S,pSrc,pDst,blockSize); }
+    } else if (S->num_taps <= 8U) {
+        if (S->num_taps == 5U) { fir_fixed5(S,pSrc,pDst,blockSize); }
+        else if (S->num_taps == 6U) { fir_fixed6(S,pSrc,pDst,blockSize); }
+        else if (S->num_taps == 7U) { fir_fixed7(S,pSrc,pDst,blockSize); }
+        else { fir_fixed8(S,pSrc,pDst,blockSize); }
+    }
     else { fir_window(S,pSrc,pDst,blockSize); }
 }

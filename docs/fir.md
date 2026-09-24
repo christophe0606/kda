@@ -76,6 +76,11 @@ loops interleave contiguous vector loads and arithmetic; an eight-output tile
 and predicated four-lane tail cover the remainder. Blocks shorter than four use
 tap-wise vector dots. No gather-load latency assumption is used.
 
+N=5..8 uses specialized straight-line taps inside a tail-predicated four-output
+loop. Coefficients are loaded once per chunk; contiguous loads, arithmetic and
+the output store are interleaved. N=2..4 also has a separate constant-tap helper
+for each count. These specializations do not change storage or initialization.
+
 N=1 scales directly. N=2..4 retains up to three most-recent samples at window
 indices0..2 and uses vector shift-with-carry, followed by a scalar remainder;
 next remains zero on these tiny paths. Initialization/reset zero the entire

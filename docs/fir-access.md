@@ -2,13 +2,13 @@
 
 ## Current linear-window candidate
 
-Candidate `fir-interleave16-v1` uses exactly N public/prepared coefficients and N+127
+Candidate `fir-fixed8-v1` uses exactly N public/prepared coefficients and N+127
 work-window floats. Instance/state ABI sizes remain12/8 bytes; state.next is the
 history start in [0,128] for N>4, zero for N<=4. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.
 
 The source proof and candidate-only AC6 audit are tied to
-`runs/fir-r4/interleave16-numerical/candidate-only-disassembly.txt`. This compile/audit
+`runs/fir-r4/fixed8abi-numerical/candidate-only-disassembly.txt`. This compile/audit
 is not by itself a dynamic safety pass; fresh guard/control results are required.
 
 | Path | Access bounds and emitted implementation |
@@ -18,6 +18,7 @@ is not by itself a dynamic safety pass; fresh guard/control results are required
 | Init/reset clearing | Clears exactly 4*(N+127) bytes through the standard word-clear runtime helper; writes instance offsets0,4,8 and state offsets0,4. |
 | N=1 | Reads/writes only B source/destination elements; scalar low-overhead loop or `dlstp.32` scale with B-count tail. No history access. |
 | N=2..4 | Reads window[0..2] (valid even for N=2 under N+127 allocation), reads exactly N coefficients, writes window[0..2]. Full four-sample vectors use shift-with-carry to insert streaming history; each carry becomes the last lane shifted out. One to three scalar remainder loads/stores stay within B. |
+| N=5..8 specialization | Same lazy-window bounds. Fixed-N straight-line tap arithmetic loads coefficients[0..N) once per chunk. `dlstp.32` output count L predicates every shifted sample load and final store: active lane j has s+i+k+j<=s+L+N-2<=N+126. The append copy is a separate L-count predicated vector loop; compaction copies exactly N-1 scalar words. |
 | Lazy compaction | Let s=next. If s+L>128, ascending copy reads window[s..s+H) and writes window[0..H), then sets s=0. Old s<=128, so maximum read is N+126. Source is ahead; every vector loads before its store. Predicated copy count H. |
 | General input append | H=N-1; L=min(B_remaining,128). After compaction check s+L<=128. Reads source[0..L), writes window[s+H..s+H+L). Scalar or tail-predicated copy with count L. The following tile bounds are relative to window+s. |
 | General L<4 | Each output i<L accumulates taps in four lanes, with `dlstp.32` count N predicating coefficient/sample reads. The final active sample index is i+N-1<=H+L-1. Scalar horizontal reduction writes one output. |
@@ -27,9 +28,12 @@ is not by itself a dynamic safety pass; fresh guard/control results are required
 | History retention | Advances s by L, maintaining 0<=s<=128. The H samples at this new offset are the latest history. Publishes s in state.next at return. No copy until space is needed. |
 | Chunk advance | Advances source/destination by L and decreases positive remaining B by L. Chunk indices stay <=128; no B+N arithmetic is used. |
 
-The public dispatcher tail-branches to private scale/tiny/window helpers.
-Their fixed frames are respectively 8, 48 and 96 bytes; none calls an external
-function. The private window helper assumes N>4, as guaranteed by the public
+The public dispatcher tail-branches to scale, specialized tiny/fixed, or general
+window helpers. Scale has an8-byte frame; tiny2/3/4 have16/24/32-byte frames;
+fixed5/6/7/8 have56/60/64/72-byte frames; general window has96 bytes. None calls
+a runtime helper during processing. Specialized helper symbols have external
+linkage to preserve their four-register ABI and tail calls, but are not declared
+in the public header. The general window helper assumes N>4, guaranteed by the public
 dispatcher, eliminating the compiler's unreachable zero-tap clear call.
 Live temporaries remain on the DTCM stack. Complete code ranges are checked from
 each final image map.
