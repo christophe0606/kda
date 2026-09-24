@@ -5,8 +5,9 @@
 The independent f32 FIR correctness candidate and its caller-owned storage/API
 contract are described in [docs/fir.md](docs/fir.md). CTest includes its host
 streaming/oracle suite. The Helium implementation has a selectable target correctness
-mode; MPU safety and on-board PMU qualification remain pending. This candidate has
-no measured performance claim.
+mode. The current candidate passed MPU guards and deliberate read/write fault
+controls. Reproducible TCM profiles and the PMU harness are described in
+[docs/fir.md](docs/fir.md); full timing qualification and CMSIS parity remain pending.
 
 ## Alif E8 demo
 
@@ -32,7 +33,7 @@ not copied into KDA. The integration was built with upstream commit
 
 HP reserves UTIMER channel 0 and a 64 KiB DTCM buffer, sampling at 1000 Hz.
 Its board layer now selects Secure compilation, as required by the adapter.
-Release optimization remains balanced, with debug information enabled for both
+Release uses speed optimization and fast math, with debug information enabled for both
 images. `src/kda_profiler_config.h` holds local clock, channel, PMU and buffer
 placement settings. The 400 MHz timer input assumes the pack's default E8 clocks.
 

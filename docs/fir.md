@@ -3,7 +3,7 @@
 The current candidate adds an independent **Helium tap-vector dot product** to
 the mirrored-ring correctness foundation. Target MPU guards and deliberate read/write
 fault controls passed; complete ITCM/DTCM residency, PMU cycles and CMSIS parity
-remain unqualified. The host greeting and
+are being qualified separately from safety. The host greeting and
 statistical board demo remain selectable; Release currently selects FIR correctness.
 
 ## Public contract
@@ -115,7 +115,7 @@ host timing is recorded as a function benchmark.
 
 ## Release target correctness mode
 
-Set `KDA_APP_FIR` in `kda.cproject.yml` to 1 for FIR correctness or 0 for the
+Set `KDA_APP_FIR` in `src/fir_profile.h` to 1 for FIR correctness or 0 for the
 original statistical demo. Both use `DevKit-E8@Release` and the idle HE image.
 The FIR mode does not initialize or enable statistical sampling. This is a
 correctness image, not a benchmark capture. The selected scatter file currently
@@ -186,6 +186,64 @@ Artifacts under `runs/fir-guard/{healthy,read-fault,write-fault}` retain image h
 build/load logs and raw/decoded MPU results. These MRAM-code tests qualify the
 audited candidate buffer accesses, not TCM performance. Re-audit and rerun guards
 after changes that alter candidate instructions.
+
+## Reproducible TCM and PMU profiles
+
+`uv run --no-project --python 3.13 scripts/build_fir.py numerical --tcm --output runs/my-numerical`
+selects the local profile, validates the solution, builds Release and archives its
+inputs. Modes are `demo`, `numerical`, `guard`, `read-fault`, `write-fault` and
+`benchmark`. Omit `--tcm` for the separate MRAM-code profile. The selected header
+is the sole source of mode/memory macros; it is archived with source hashes,
+compiler commands, generated contexts/run configuration, expanded scatter file,
+map, section flags and both core images. Existing evidence directories cannot be
+overwritten. Inputs changing during validation/build invalidate the archive.
+Serialize this script with CMSIS build/load/debug operations. It never accesses
+the board; load through CMSIS MCP and retain the fresh load log beside each capture.
+
+The TCM scatter profile keeps startup/root sections in MRAM, moves other code to
+ITCM and read-only data to the existing DTCM region. FIR and comparator translation
+units use `-mexecute-only`; ELF `SHF_ARM_PURECODE` section flags establish that the
+timed code contains no literal data without opening comparator instructions.
+Startup/profiler assembly is excluded from that option. Check symbol addresses,
+linker cross-reference identities, capacities, section flags and live data/stack
+addresses for each image; a requested TCM profile alone does not qualify it.
+
+Mode 5 first runs the full strict numerical suite. It then checks PMU presence,
+live cycle progression, disabled-counter behavior and a deliberately induced
+overflow, preserving the cycle filter. Timestamp reads use CMSIS Core CCNTR APIs.
+On this target, `CTRL.CYCCNT_DISABLE` stops CCNTR and the cycle bit in CNTENSET
+enables its overflow reporting; both controls are exercised by the probes.
+It retains raw inclusive deltas for 31 alternating paired batches per matrix case,
+with common calibrated repetitions, 128 warmup calls and separate fixtures.
+Sampling is not started; interrupts are masked during measurement and restored
+afterward. Initialization, strict periodic-stream checks and metadata are outside
+the timed whole-call intervals. Candidate/reference batch call sites reside in
+separate translation units with LTO disabled and identical calling structure.
+
+Export `kda_fir_benchmark` through supported MCP memory reads only after completion.
+Save `memory.json` with the starting `address` and complete byte array `bytes`.
+`scripts/report_fir.py --profile runs/my-build --capture runs/my-capture` checks
+metadata and reports medians, ranges, MAD and overhead diagnostics. Inclusive C
+is raw batch median divided by repetitions. Empty-loop subtraction is diagnostic
+only. Cases with empty-loop or endpoint overhead above 1%, or MAD above 1%, remain
+unresolved; repetitions cannot amortize per-call loop costs. An observed cycle
+comparison is not a qualified parity claim until every required gate passes.
+
+The initial TCM profile `runs/fir-tcm/benchmark-v4` has two complete independent
+captures in `capture-4` and `capture-5`. Both report 323 cases, no target failures,
+no provenance-check errors and no cases exceeding 1% batch MAD. Both remain
+**unqualified**: empty-call-loop overhead exceeds 1% in 237 cases. The raw inclusive
+comparison shows the candidate slower in 282 cases in each capture. These are
+diagnostics for further harness work and optimization, not accepted parity or
+asymptotic results. Accepted cycle fields in `benchmark.csv` remain blank.
+
+Earlier harness attempts are retained: v1 overflowed the stack while zeroing a
+large volatile aggregate; v2 failed the stopped-counter probe; v3 failed the
+overflow-reporting probe. The v4 fixes passed both PMU probes and eight planted
+invalid-evidence controls. The FIR algorithm was unchanged across these attempts.
+After captures, `runs/fir-tcm/numerical-final` restored numerical mode with TCM
+enabled: validated Release build, completed dual-image programming, 2261 numerical
+cases with zero failures, no live fault flags, and debugger detached.
 
 ## Evidence and independent-design boundary
 

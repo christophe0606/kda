@@ -1,12 +1,14 @@
 #include <stdio.h>
 
 #if defined(KDA_ALIF_E8)
+#include "fir_profile.h"
 #include "RTE_Components.h"
 #include CMSIS_device_header
 #include "retarget_init.h"
 #if KDA_APP_FIR
 #include "fir_target.h"
 #include "fir_guard.h"
+#include "fir_benchmark.h"
 #else
 #include "sampling_profiler.h"
 #include "profiler_utimer_config.h"
@@ -39,7 +41,12 @@ int main(void)
     }
 
 #if KDA_APP_FIR
-#if KDA_APP_FIR >= 2
+#if KDA_APP_FIR == 5
+    kda_fir_target_run();
+    if (kda_fir_result.phase == 3 && kda_fir_result.failures == 0) {
+        kda_fir_benchmark_run();
+    }
+#elif KDA_APP_FIR >= 2
     kda_fir_guard_run();
 #else
     kda_fir_target_run();

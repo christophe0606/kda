@@ -3,10 +3,14 @@
 project:
   device: :M55_HP
   language-C: c11
+  misc:
+    - for-compiler: AC6
+      Link:
+        - --xref
+        - --symbols
   define:
     - KDA_ALIF_E8
-    # 0=demo, 1=FIR numerical, 2=MPU guards, 3=read fault, 4=write fault.
-    - KDA_APP_FIR: 1
+    # FIR mode and memory profile are selected in src/fir_profile.h.
     - PROFILER_USER_CONFIG: '"kda_profiler_config.h"'
   add-path:
     - ./src
@@ -14,16 +18,37 @@ project:
 
   components:
     - component: CMSIS:DSP&Source
+      misc:
+        - for-compiler: AC6
+          C:
+            - -mexecute-only
 
   groups:
     - group: Application
+      misc:
+        - for-compiler: AC6
+          C:
+            - -mexecute-only
       files:
         - file: ./src/main.c
     - group: Independent FIR
+      misc:
+        - for-compiler: AC6
+          C:
+            - -mexecute-only
       define:
         - KDA_FIR_REQUIRE_MVE
       files:
         - file: ./src/kda_fir_f32.c
+    - group: FIR benchmark calls
+      misc:
+        - for-compiler: AC6
+          C:
+            - -mexecute-only
+      files:
+        - file: ./src/fir_batch_candidate.c
+        - file: ./src/fir_batch_baseline.c
+        - file: ./src/fir_batch_empty.c
     - group: FIR strict checker
       define:
         - KDA_FIR_TARGET_TESTS
@@ -32,9 +57,11 @@ project:
           C:
             - -fno-fast-math
             - -ffp-contract=off
+            - -mexecute-only
       files:
         - file: ./src/fir_target.c
         - file: ./src/fir_guard.c
+        - file: ./src/fir_benchmark.c
         - file: ./tests/fir_oracle.c
         - file: ./tests/test_fir.c
 

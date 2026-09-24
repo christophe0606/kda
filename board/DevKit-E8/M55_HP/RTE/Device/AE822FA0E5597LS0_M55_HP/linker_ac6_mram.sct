@@ -2,6 +2,7 @@
 ; command above MUST be in first line (no comment above!)
 
 #include "app_mem_regions.h"
+#include "../../../../../../src/fir_profile.h"
 
 #define __ROM_BASE      APP_MRAM_HP_BASE
 #define __ROM_SIZE      APP_CODE_MRAM_SIZE
@@ -47,16 +48,25 @@ LR_ROM __ROM_BASE NOCOMPRESS __ROM_SIZE  {    ; load region size_region
    *mpu*.o (+RO)
    *sau_tcm_ns_setup*.o (+RO)
 
+#if !KDA_FIR_TCM
    .ANY (+RO)
    .ANY (+XO)
+#endif
   }
 
   ITCM_RAM __ITCM_BASE __ITCM_SIZE  {                     ; RW code
    ; Specify objects intended to execute out of ITCM
    * (.itcm*)                             ; Objects targeting ITCM
+#if KDA_FIR_TCM
+   .ANY (+RO-CODE)
+   .ANY (+XO)
+#endif
   }
 
   RW_RAM __RW_BASE __RW_SIZE  {                     ; RW data
+#if KDA_FIR_TCM
+   .ANY (+RO-DATA)
+#endif
    * (.bss.dtcm.profiler)                 ; Exact match overrides the RW_SRAM wildcard
    * (.bss.dtcm.fir)                      ; FIR workspace must not match SRAM wildcard
    * (.*dtcm*)                            ; Objects targeting DTCM

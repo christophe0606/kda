@@ -1,4 +1,5 @@
 #include "fir_guard.h"
+#include "fir_profile.h"
 #include "kda_fir_f32.h"
 #include "fir_oracle.h"
 #include "fir_vectors.h"
@@ -9,7 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#if KDA_APP_FIR >= 2
+#if KDA_APP_FIR >= 2 && KDA_APP_FIR <= 4
 #if defined(__FAST_MATH__)
 #error "Guard verification must use strict math"
 #endif

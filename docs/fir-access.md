@@ -143,3 +143,15 @@ standard clear helper; the control listings contain only local harness code.
 CMSIS Load logs confirm the intended HP and HE Release images and completed
 programming; no byte-verification claim is made. Code executes from MRAM here,
 so these are safety results only, with PMU/ITCM qualification still pending.
+
+The Round 3 profiles under `runs/fir-profiles/` repeat the MRAM guard/control
+runs with explicit archived mode headers and complete build inputs. The profiles
+under `runs/fir-tcm/{guard,read-fault,write-fault}` additionally repeat them with
+ITCM code and the scoped execute-only compiler option. All 6460 healthy cases
+passed without live faults. Both controls again recorded CFSR 0x82 and forced
+HardFault, now at the relocated gap 0x200015a0. The read PC is 0x1f78 and write PC
+0x1d0e. Candidate and standard clear-helper disassembly was re-audited in
+`fir-tcm/guard/candidate-disassembly.txt`: the same scalar reversal, exact clear,
+predicated dot-product bounds and ABI field accesses apply after relocation.
+These profile-specific manifests supersede the earlier mode-1-only source
+manifest for reproducing the safety images; they do not retroactively change it.
