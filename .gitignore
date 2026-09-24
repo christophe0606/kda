@@ -8,3 +8,6 @@
 *.cbuild-gen-idx.yml
 /RTE/_*/
 /M55_HE/RTE/_*/
+runs/
+profile/
+outputs/

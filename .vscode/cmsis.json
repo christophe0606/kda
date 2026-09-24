@@ -4,5 +4,7 @@
             "activeTargetType": "DevKit-E8",
             "DevKit-E8": 0
         }
-    }
+    },
+    "activeSolution": "../kda.csolution.yml",
+    "activeTarget": "DevKit-E8@Release"
 }
