@@ -26,9 +26,18 @@
     ],
     "tasks": [
         {
+            "label": "CMSIS Prepare logs",
+            "type": "process",
+            "command": "cmd.exe",
+            "args": ["/d", "/c", "if not exist runs mkdir runs"],
+            "options": { "cwd": "${workspaceFolder}/" },
+            "problemMatcher": []
+        },
+        {
             "label": "CMSIS Load",
             "type": "shell",
-            "command": "pyocd",
+            "dependsOn": "CMSIS Prepare logs",
+            "command": "pyocd load --probe cmsisdap: --cbuild-run \"${command:cmsis-csolution.getCbuildRunFile}\" --log \"*.cbuild_run=info\" > runs/cmsis-load.log 2>&1",
             "options": {
                 "cwd": "${workspaceFolder}/",
                 "shell": {
@@ -39,14 +48,7 @@
                     ]
                 }
             },
-            "problemMatcher": [],
-            "args": [
-                "load",
-                "--probe",
-                "cmsisdap:",
-                "--cbuild-run",
-                "${command:cmsis-csolution.getCbuildRunFile}"
-            ]
+            "problemMatcher": []
         },
         {
             "label": "CMSIS Run",

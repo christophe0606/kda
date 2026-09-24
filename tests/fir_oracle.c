@@ -2,6 +2,10 @@
 
 #include <math.h>
 
+#if defined(__FAST_MATH__)
+#error "The FIR oracle must use strict floating-point semantics"
+#endif
+
 /* Direct chronological convolution: independent of candidate storage/indexing. */
 double fir_reference(const float *public_coefficients, size_t taps,
                      const float *stream, size_t sample, double *absolute_sum)

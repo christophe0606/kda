@@ -2,6 +2,16 @@
 
 #include <string.h>
 
+#if defined(__ARM_FEATURE_MVE) && (__ARM_FEATURE_MVE & 2)
+#include <arm_mve.h>
+#define KDA_FIR_MVE 1
+#else
+#define KDA_FIR_MVE 0
+#endif
+#if defined(KDA_FIR_REQUIRE_MVE) && !KDA_FIR_MVE
+#error "The target FIR candidate requires floating-point MVE"
+#endif
+
 _Static_assert(sizeof(float32_t) == 4, "FIR requires a 32-bit float");
 
 size_t kda_fir_history_f32_count(uint16_t num_taps)
@@ -59,10 +69,23 @@ void kda_fir_f32(const kda_fir_instance_f32 *S, const float32_t *pSrc,
     for (uint32_t i = 0; i < blockSize; ++i) {
         history[next] = pSrc[i];
         history[next + count] = pSrc[i];
-        float32_t sum = 0.0f;
+        float32_t sum;
+#if KDA_FIR_MVE
+        float32x4_t partial = vdupq_n_f32(0.0f);
+        for (size_t k = 0; k < count; k += 4U) {
+            const mve_pred16_t active = vctp32q((uint32_t)(count - k));
+            const float32x4_t coefficients = vldrwq_z_f32(S->prepared + k, active);
+            const float32x4_t samples = vldrwq_z_f32(history + next + k, active);
+            partial = vfmaq_m_f32(partial, coefficients, samples, active);
+        }
+        sum = (vgetq_lane_f32(partial, 0) + vgetq_lane_f32(partial, 1)) +
+              (vgetq_lane_f32(partial, 2) + vgetq_lane_f32(partial, 3));
+#else
+        sum = 0.0f;
         for (size_t k = 0; k < count; ++k) {
             sum += S->prepared[k] * history[next + k];
         }
+#endif
         pDst[i] = sum;
         next = next == 0 ? count - 1U : next - 1U;
     }

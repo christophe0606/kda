@@ -1,5 +1,6 @@
 #include "kda_fir_f32.h"
 #include "fir_oracle.h"
+#include "fir_vectors.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -9,13 +10,6 @@
 #define CHECK(condition) do { if (!(condition)) { \
     fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #condition); \
     return 0; } } while (0)
-
-static const uint32_t blocks[] = {
-    1, 2, 3, 4, 5, 7, 8, 15, 16, 17, 31, 32, 63, 64, 127, 128, 129, 256, 512
-};
-static const uint16_t taps[] = {
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17, 31, 32, 33, 64, 128
-};
 
 typedef struct {
     float *base;
@@ -40,28 +34,6 @@ static int guards_ok(guarded_buffer buffer)
 {
     return buffer.base[0] == 12345.5f &&
            buffer.base[buffer.count + 1U] == -23456.5f;
-}
-
-static uint32_t random_next(uint32_t *state)
-{
-    *state = *state * UINT32_C(1664525) + UINT32_C(1013904223);
-    return *state;
-}
-
-static float input_sample(unsigned pattern, size_t i, uint32_t *seed)
-{
-    switch (pattern) {
-    case 0: return i == 0 ? 1.0f : 0.0f;
-    case 1: return 0.0f;
-    case 2: return 0.25f;
-    case 3: return (float)((int)(i % 67U) - 33) / 64.0f;
-    case 4: return (i & 1U) ? -0.5f : 0.5f;
-    case 5: return (float)((int)(random_next(seed) >> 8) % 2049 - 1024) / 1024.0f;
-    default: {
-        const float magnitude[] = {0.0625f, 1.0f, 16.0f};
-        return magnitude[i % 3U] * ((i & 1U) ? -0.75f : 0.5f);
-    }
-    }
 }
 
 static int outputs_match(const float *coefficients, size_t n,
@@ -246,6 +218,13 @@ static int negative_controls(void)
     return 1;
 }
 
+int fir_contract_lifecycle_tests(void)
+{
+    return lifecycle() && independent_variable_blocks() &&
+        invalid_initialization() && negative_controls();
+}
+
+#if !defined(KDA_FIR_TARGET_TESTS)
 int main(void)
 {
     for (size_t b = 0; b < sizeof blocks / sizeof blocks[0]; ++b) {
@@ -255,10 +234,10 @@ int main(void)
             }
         }
     }
-    if (!matrix_case(UINT16_MAX, 3, 5) || !lifecycle() ||
-        !independent_variable_blocks() || !invalid_initialization() || !negative_controls()) {
+    if (!matrix_case(UINT16_MAX, 3, 5) || !fir_contract_lifecycle_tests()) {
         return EXIT_FAILURE;
     }
     puts("FIR: 323 pairs x 7 patterns x 8 blocks, max taps, lifecycle and negative controls passed");
     return EXIT_SUCCESS;
 }
+#endif

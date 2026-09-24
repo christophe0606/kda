@@ -1,2 +1,3 @@
 candidate_id,commit_ref,source_manifest_sha256,case,benchmark_status,cycles,validation,toolchain,flags,evidence
 fir-mirrored-scalar-v1,Benchmark-Revision: fir-mirrored-scalar-v1,108d76d6d3fcea2ec3a063d3da24351bfa4d928f02a40ece39d538900b7706ab,all,not_measured,,host-correctness-only,Clang 22.1.3,-O3 -ffast-math,runs/fir-host/Testing/Temporary/LastTest.log
+fir-mirrored-mve-v1,Benchmark-Revision: fir-mirrored-mve-v1,fda97e31519e30a863e6905e3afa3f7617c6355180c446b0e52e0911113c0653,all,not_measured,,host and MRAM target correctness; MPU/TCM/PMU pending,AC6 6.24,-O3 -ffast-math -fno-lto,runs/fir-reference/target-result.json

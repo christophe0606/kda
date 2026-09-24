@@ -45,6 +45,7 @@ solution:
         - for-compiler: AC6
           C-CPP:
             - -ffast-math
+            - -fno-lto
     - type: Debug
       debug: on
       optimize: none

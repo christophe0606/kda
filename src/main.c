@@ -4,6 +4,9 @@
 #include "RTE_Components.h"
 #include CMSIS_device_header
 #include "retarget_init.h"
+#if KDA_APP_FIR
+#include "fir_target.h"
+#else
 #include "sampling_profiler.h"
 #include "profiler_utimer_config.h"
 
@@ -25,6 +28,7 @@ __attribute__((noinline)) static void workload_heavy(void)
         ++kda_heavy_steps;
     }
 }
+#endif
 
 int main(void)
 {
@@ -33,6 +37,10 @@ int main(void)
         fflush(stdout);
     }
 
+#if KDA_APP_FIR
+    kda_fir_target_run();
+    for (;;) { __WFI(); }
+#else
     /* HP alone owns UTIMER channel 0; HE does not access UTIMER. Do not
      * reuse this shared clock update if HE gains a timer without first
      * adding serialized clock setup and an inter-core readiness handshake.
@@ -72,6 +80,7 @@ int main(void)
             capturing = 0;
         }
     }
+#endif
 }
 
 #else

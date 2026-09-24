@@ -4,8 +4,9 @@
 
 The independent f32 FIR correctness candidate and its caller-owned storage/API
 contract are described in [docs/fir.md](docs/fir.md). CTest includes its host
-streaming/oracle suite. Helium implementation and on-board PMU qualification are
-still pending; this candidate has no measured performance claim.
+streaming/oracle suite. The Helium implementation has a selectable target correctness
+mode; MPU safety and on-board PMU qualification remain pending. This candidate has
+no measured performance claim.
 
 ## Alif E8 demo
 

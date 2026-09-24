@@ -52,6 +52,7 @@ LR_ROM __ROM_BASE __ROM_SIZE  {    ; load region size_region
   }
 
   RW_RAM __RW_BASE __RW_SIZE  {                     ; RW data
+   * (.bss.dtcm.fir)                      ; Exact match overrides SRAM wildcard
    * (.*dtcm*)                            ; Objects targeting DTCM
    .ANY (+RW +ZI)
   }

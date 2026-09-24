@@ -58,6 +58,7 @@ LR_ROM __ROM_BASE NOCOMPRESS __ROM_SIZE  {    ; load region size_region
 
   RW_RAM __RW_BASE __RW_SIZE  {                     ; RW data
    * (.bss.dtcm.profiler)                 ; Exact match overrides RW_SRAM's .bss.*
+   * (.bss.dtcm.fir)                      ; FIR workspace must not match SRAM wildcard
    * (.*dtcm*)                            ; Objects targeting DTCM
    .ANY (+RW +ZI)
   }

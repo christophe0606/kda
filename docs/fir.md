@@ -1,9 +1,9 @@
 # Independent f32 FIR candidate
 
-The current candidate is a **host-tested scalar correctness foundation**, not the
-finished Helium implementation. Target correctness, target memory guards, ITCM/DTCM
-residency, PMU cycles and CMSIS parity are still unqualified. The existing board
-demo and host greeting are unchanged.
+The current candidate adds an independent **Helium tap-vector dot product** to
+the mirrored-ring correctness foundation. Target memory guards, complete ITCM/DTCM
+residency, PMU cycles and CMSIS parity remain unqualified. The host greeting and
+statistical board demo remain selectable; Release currently selects FIR correctness.
 
 ## Public contract
 
@@ -70,11 +70,13 @@ separate state object so processing never casts away the instance's constness.
 
 For `0 <= p < N` and `0 <= k < N`, the dot reads at most index `2*N-2`; the mirrored
 store writes at most `2*N-1`. Prepared coefficient accesses are exactly `[0,N)`.
-Only the requested source/destination samples are accessed. This is the scalar
-source-level bound; future candidate machine-code and target MPU checks remain
-necessary. Host canaries detect writes, not otherwise valid reads into a canary.
+Only the requested source/destination samples are accessed. The Helium loop advances
+k by four and predicates each load and FMA with `min(4,N-k)` active lanes. Thus each
+active lane j satisfies k+j<N; the same bounds hold without caller padding. Four
+partial sums are reduced in scalar lanes. The non-MVE host build retains the scalar
+path. Host canaries detect writes, not otherwise valid reads into a canary.
 
-Future Helium versions must preserve this candidate's documented storage contract
+Future versions must preserve this candidate's documented storage contract
 or explicitly create and document a new candidate contract. They must not silently
 introduce padding, aliasing or alignment requirements.
 
@@ -93,7 +95,8 @@ patterns, and eight blocks per pair/pattern, plus maximum uint16 tap count, vari
 block sizes, independent instances, reset, changed coefficients/dimensions and
 failure-atomic initialization. Patterns include a non-symmetric impulse, zero,
 constant, ramp, cancellation, seeded random and bounded mixed magnitudes. The seed
-is `0x95e1a123 ^ N ^ (B << 16) ^ pattern`.
+is `0x95e1a123 ^ N ^ (B << 16) ^ pattern`. Random signed integers in [-1024,1024]
+are divided by 1009, exercising non-exact floating-point products and sums.
 
 `tests/fir_oracle.c` directly convolves the chronological stream in double
 precision. It does not reproduce ring indexing. Its fixed per-output tolerance is
@@ -107,6 +110,67 @@ injected output error. The existing six greeting tests remain enabled.
 Passing this host suite is not evidence of target performance or MVE safety. No
 host timing is recorded as a function benchmark.
 
+## Release target correctness mode
+
+Set `KDA_APP_FIR` in `kda.cproject.yml` to 1 for FIR correctness or 0 for the
+original statistical demo. Both use `DevKit-E8@Release` and the idle HE image.
+The FIR mode does not initialize or enable statistical sampling. This is a
+correctness image, not a benchmark capture. The selected scatter file currently
+executes code from MRAM; it is explicitly ineligible for the 0.621 TCM comparison.
+
+`src/fir_target.c` runs the shared 323-case matrix with seven patterns and eight
+blocks against the strict double oracle, independently for candidate and opaque
+CMSIS. It then runs candidate lifecycle/negative controls and baseline reset,
+changed coefficients and interleaved-instance checks. Input/coefficient immutability,
+missing outputs, absolute/scaled errors and FPSCR are checked or recorded.
+`kda_fir_result` exposes progress and the first matrix failure to the debugger;
+phase 3 means finished, and success additionally requires 2261 cases and zero
+failures. `mpu_type` is capability metadata, not an MPU protection test.
+
+Candidate and baseline calls have separate instances, prepared coefficients,
+state and output buffers. The correctness workspace reserves arrays for maximum
+matrix dimensions; result footprint fields report the per-case logical requirements,
+not this backing allocation. Natural float alignment remains the candidate contract;
+the static matrix workspace uses common 16-byte alignment. This workspace does not
+replace exact-allocation MPU tests.
+
+The opaque baseline follows only the versioned [CMSIS-DSP 1.18.0 public FIR usage
+documentation](https://arm-software.github.io/CMSIS-DSP/v1.18.0/group__FIR.html):
+`4*ceil(N/4)` coefficient floats with zero-valued padding, `N+2*B-1` state floats,
+and `arm_fir_init_f32` with a fixed B per initialized fixture. The public
+[library overview](https://arm-software.github.io/CMSIS-DSP/v1.18.0/index.html)
+also requires three readable words beyond vector buffers. Baseline arrays reserve
+that additional margin, including separate source storage; the baseline footprint
+fields include it for coefficients/state. These requirements
+are exclusive to the baseline. Both initializers receive the same public order.
+Public headers are compiled opaquely; implementation source is never opened.
+
+Release candidate and DSP commands use AC6 6.24, Cortex-M55, `-O3 -ffast-math`
+and `-fno-lto`. Checker/oracle commands override fast math with `-fno-fast-math
+-ffp-contract=off`; compile-time assertions reject an incorrect checker configuration,
+missing candidate MVE float support or a non-MVE/autovectorized comparator selection.
+An exact `.bss.dtcm.fir` selector prevents collision with SRAM `.bss.*` selectors.
+
+CMSIS Load retains its output in `runs/cmsis-load.log` through the existing CMSIS
+task. Its preparation dependency creates `runs/` on a fresh checkout. Inspect the log
+for both selected image paths and completed programming; a responsive debugger or
+MCP success message alone is insufficient. A failed link can leave an older ELF.
+
+Round 1 target evidence (`runs/fir-reference/target-result.json`) records 2261/2261
+matrix cases and zero failures after lifecycle/control tests. Maximum absolute
+errors were 1.5187543e-6 for the candidate and 2.9796502e-6 for CMSIS; maximum
+error/bound ratios were 0.205222 and 0.209653. FPSCR was `0x00040010` before and
+`0x80040010` afterward; MPU TYPE was `0x00001000`. These are numerical results
+from the MRAM correctness image, not safety, residency or performance acceptance.
+
+Candidate-only final disassembly shows `dlstp.32` using N, two `vldrw` streams,
+`vfma.f32`, and `letp` before scalar reduction, with mirrored scalar stores.
+The emitted tail-predicated loop supports the source bound above; a full audit
+of initialization/reset/compiler-generated paths and guarded target tests is
+still required before safety qualification. Evidence:
+`runs/fir-reference/candidate-final-mve.txt`, `selected-commands.json`,
+`baseline-commands.json`, `image-hashes.txt`, and `final-load.log`.
+
 ## Evidence and independent-design boundary
 
 Candidate IDs and parents are recorded in `solutions.jsonl`. `benchmark.csv` uses
@@ -116,7 +180,7 @@ revision with `git log --all --grep='Benchmark-Revision: <revision>'`; measured
 captures will additionally name exact commits/images. Blank cycle fields mean
 not measured, not zero cycles.
 
-CMSIS is an opaque future comparator. No implementation source, internal
+CMSIS is an opaque comparator. No implementation source, internal
 descriptions, disassembly, instruction traces or old source-analysis notes may be
 used by any implementer/reviewer. Permitted evidence is FIR mathematics, public
 architecture/compiler documentation, application-local code/linker configuration,
