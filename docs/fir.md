@@ -65,7 +65,7 @@ candidate and CMSIS instance structs are not cast-compatible.
 ## Derivation and access bounds
 
 The design comes from the FIR equation and measured candidate costs. Prepared
-coefficients retain `{b[N-1],...,b[0]}`. For N>4, H=N-1 samples starting at
+coefficients retain `{b[N-1],...,b[0]}`. For N>8, H=N-1 samples starting at
 state.next hold oldest-to-newest history. Each chunk appends L<=128 inputs.
 If next+L>128, an ascending overlap-safe copy first moves those H samples to
 offset zero. Otherwise no compaction is needed. Output i is
@@ -76,10 +76,18 @@ loops interleave contiguous vector loads and arithmetic; an eight-output tile
 and predicated four-lane tail cover the remainder. Blocks shorter than four use
 tap-wise vector dots. No gather-load latency assumption is used.
 
-N=5..8 uses specialized straight-line taps inside a tail-predicated four-output
-loop. Coefficients are loaded once per chunk; contiguous loads, arithmetic and
-the output store are interleaved. N=2..4 also has a separate constant-tap helper
-for each count. These specializations do not change storage or initialization.
+N=5..8 retains H=N-1 oldest-to-newest samples at window[0..H). It copies only
+E=min(B,round_up(H,4)) initial input samples after that history and computes the
+first E outputs there. Remaining outputs use the source directly, beginning at
+source[E-H]. Straight-line taps alternate contiguous loads and arithmetic in
+tail-predicated four-output loops. The last H source samples become the next
+history; when B<H, an ascending overlap-safe copy retains window[B..B+H).
+This bounds boundary preparation to eight input samples per call, with all work
+inside processing. The existing valid-buffer byte-span precondition is exposed
+to the MVE compiler to prevent a hypothetical loop-index wrap and enable hardware
+tail loops. N=2..4 also has a separate constant-tap helper for each count.
+These specializations do not change storage or initialization; next stays zero
+for N<=8.
 
 N=1 scales directly. N=2..4 retains up to three most-recent samples at window
 indices0..2 and uses vector shift-with-carry, followed by a scalar remainder;

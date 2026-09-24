@@ -244,6 +244,33 @@ KDA_NOINLINE static void fir_window(const kda_fir_instance_f32 *S,
     S->state->next = offset;
 }
 
+KDA_INLINE static void fir_fixed_outputs(const float32_t *__restrict samples,
+    const float32_t *__restrict coefficients, float32_t *__restrict output,
+    uint32_t length, size_t count)
+{
+#if KDA_FIR_MVE
+    /* A valid float buffer has a representable byte span. Exposing that
+     * public precondition also proves the four-sample loop cannot wrap. */
+    __builtin_assume(length <= SIZE_MAX / sizeof(float32_t));
+#pragma clang loop unroll(disable)
+    for (uint32_t i = 0; i < length; i += 4U) {
+        const mve_pred16_t active = vctp32q(length-i);
+        float32x4_t sum = vdupq_n_f32(0.0f);
+#pragma clang loop unroll(full)
+        for (size_t k = 0; k < count; ++k) {
+            sum = vfmaq_n_f32(sum, vldrwq_z_f32(samples+i+k,active), coefficients[k]);
+        }
+        vstrwq_p_f32(output+i,sum,active);
+    }
+#else
+    for (uint32_t i = 0; i < length; ++i) {
+        float32_t sum = 0.0f;
+        for (size_t k = 0; k < count; ++k) { sum += samples[i+k]*coefficients[k]; }
+        output[i] = sum;
+    }
+#endif
+}
+
 KDA_INLINE static void fir_fixed(const kda_fir_instance_f32 *S,
     const float32_t *__restrict pSrc, float32_t *__restrict pDst,
     uint32_t blockSize, size_t count)
@@ -251,41 +278,28 @@ KDA_INLINE static void fir_fixed(const kda_fir_instance_f32 *S,
     float32_t *__restrict history = S->state->history;
     const float32_t *__restrict coefficients = S->prepared;
     const size_t prefix = count - 1U;
-    size_t offset = S->state->next;
-    while (blockSize != 0U) {
-        const uint32_t length = blockSize < KDA_FIR_CHUNK ? blockSize : KDA_FIR_CHUNK;
-        if (offset + length > KDA_FIR_CHUNK) {
-            for (size_t k = 0; k < prefix; ++k) { history[k] = history[offset+k]; }
-            offset = 0;
-        }
-        float32_t *const window = history + offset;
+    const uint32_t boundary = (uint32_t)((prefix + 3U) & ~(size_t)3U);
+    const uint32_t edge = blockSize < boundary ? blockSize : boundary;
+    /* Only the first outputs need samples from the preceding public call. */
 #if KDA_FIR_MVE
-        for (uint32_t i = 0; i < length; i += 4U) {
-            const mve_pred16_t active = vctp32q(length-i);
-            vstrwq_p_f32(window+prefix+i, vldrwq_z_f32(pSrc+i,active), active);
-        }
-#pragma clang loop unroll(disable)
-        for (uint32_t i = 0; i < length; i += 4U) {
-            const mve_pred16_t active = vctp32q(length-i);
-            float32x4_t sum = vdupq_n_f32(0.0f);
-#pragma clang loop unroll(full)
-            for (size_t k = 0; k < count; ++k) {
-                sum = vfmaq_n_f32(sum, vldrwq_z_f32(window+i+k,active), coefficients[k]);
-            }
-            vstrwq_p_f32(pDst+i,sum,active);
-        }
-#else
-        for (uint32_t i = 0; i < length; ++i) { window[prefix+i] = pSrc[i]; }
-        for (uint32_t i = 0; i < length; ++i) {
-            float32_t sum = 0.0f;
-            for (size_t k = 0; k < count; ++k) { sum += window[i+k]*coefficients[k]; }
-            pDst[i] = sum;
-        }
-#endif
-        offset += length;
-        pSrc += length; pDst += length; blockSize -= length;
+    for (uint32_t i = 0; i < edge; i += 4U) {
+        const mve_pred16_t active = vctp32q(edge-i);
+        vstrwq_p_f32(history+prefix+i, vldrwq_z_f32(pSrc+i,active), active);
     }
-    S->state->next = offset;
+#else
+    for (uint32_t i = 0; i < edge; ++i) { history[prefix+i] = pSrc[i]; }
+#endif
+    fir_fixed_outputs(history, coefficients, pDst, edge, count);
+    if (blockSize > edge) {
+        fir_fixed_outputs(pSrc+edge-prefix, coefficients, pDst+edge,
+                          blockSize-edge, count);
+    }
+    if (blockSize >= prefix) {
+        for (size_t k = 0; k < prefix; ++k) { history[k] = pSrc[blockSize-prefix+k]; }
+    } else {
+        /* Forward overlap-safe retention for a block shorter than history. */
+        for (size_t k = 0; k < prefix; ++k) { history[k] = history[blockSize+k]; }
+    }
 }
 
 /* External linkage preserves the four-register ABI for dispatcher tail calls.
