@@ -9,6 +9,7 @@ solution:
     - pack: AlifSemiconductor::Ensemble@2.2.1
     - pack: ARM::CMSIS@6.3.0
     - pack: ARM::CMSIS-Compiler@2.2.0
+    - pack: ARM::CMSIS-DSP@1.18.0
 
   output-dirs:
     tmpdir: build/cmsis/tmp
@@ -39,7 +40,11 @@ solution:
     - type: Release
       # Retain optimized code plus types/symbols for profiling and capture export.
       debug: on
-      optimize: balanced
+      optimize: speed
+      misc:
+        - for-compiler: AC6
+          C-CPP:
+            - -ffast-math
     - type: Debug
       debug: on
       optimize: none

@@ -9,6 +9,9 @@ project:
   add-path:
     - ./src
 
+  components:
+    - component: CMSIS:DSP&Source
+
   groups:
     - group: Application
       files:
