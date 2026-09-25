@@ -84,7 +84,33 @@ def check(profile, capture, output):
                 assert not pair['parity_both'] and not pair['qualified_pair']
             assert not compare(changed,changed)['errors']
         else: assert result['errors'], name
-    print(f'{len(changes)+9} invalid-evidence/pair controls rejected; synthetic positive pair control passed')
+    # The user-approved allowance is absolute, uniform, and inclusive at exactly
+    # two cycles. Strict results remain false; no measured value is changed.
+    allowance_controls = 0
+    for delta, accepted in ((1.0,True),(2.0,True),(2.000001,False)):
+        changed = copy.deepcopy(passing)
+        changed['cases'][0]['baseline']['median_cycles'] = 1000.0
+        changed['cases'][0]['candidate']['median_cycles'] = 1000.0 + delta
+        # Deliberately stale flags must not override the measured medians.
+        changed['cases'][0]['observed_parity'] = True
+        pair = compare(changed,changed,2.0)
+        assert pair['qualified_pair'] == accepted and pair['parity_both'] == accepted
+        assert not pair['strict_parity_both'] and pair['strict_failures']=={'first':1,'second':1}
+        assert not compare(changed,changed)['qualified_pair']
+        allowance_controls += 1
+    for allowance in (-1.0,2.01,float('inf'),float('nan')):
+        try: compare(passing,passing,allowance)
+        except ValueError: pass
+        else: raise AssertionError('Invalid allowance accepted')
+        allowance_controls += 1
+    for field in ('qualified','build_id','drift'):
+        changed = copy.deepcopy(passing)
+        if field == 'qualified': changed['qualified'] = False
+        elif field == 'build_id': changed['metadata']['build_id'] = 'wrong'
+        else: changed['cases'][0]['candidate']['median_cycles'] *= 1.02
+        assert not compare(passing,changed,2.0)['qualified_pair']
+        allowance_controls += 1
+    print(f'{len(changes)+9} invalid-evidence/pair controls rejected; synthetic positive pair control passed; {allowance_controls} allowance controls passed')
 
 
 if __name__ == '__main__':
