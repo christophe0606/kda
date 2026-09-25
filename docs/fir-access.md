@@ -2,13 +2,27 @@
 
 ## Current linear-window candidate
 
-The current experimental successor is `fir-tiny4-noalias-v1`. It adds restrict
-only to the existing tiny4 residual helper's history/source/output pointers,
-matching the already required disjoint-buffer contract. Allocation sizes, public
-order, arithmetic and valid retained samples are unchanged. Diagnostic assembly
-is archived in `runs/fir-r6/tiny4-noalias-diagnostic`; performance and fresh
-committed-image safety remain pending. The qualified parent is documented below.
+The current best measured candidate is `fir-tiny4-noalias-v1`, source commit
+0d4774b. Its tiny4 residual helper uses restrict for history/source/output,
+expressing the existing disjoint-buffer contract. Public order, allocation sizes
+and valid retained samples are unchanged. Current full owned assembly and bounds
+audit: `runs/fir-r6/noalias-numerical/{candidate-only-disassembly.txt,access-audit.md}`.
+The normalized complete-function comparison changes only tiny4_short/long;
+their frames remain24/36 bytes. Short B2/B3 source loads and output stores remain
+VCTP-predicated, and its scalar reads select only the two/three valid samples.
+Long R2 uses LDRD source0/1 and oldc0; R3 uses LDM source0..2 and stores their
+reversal. No inactive lane becomes retained history; no new caller restriction
+is introduced.
 
+Fresh host7/7,target2261/expanded lifecycle,MPU6460 and both expected controls
+pass for committed0d4774b. Every safety profile has actual dual-image load logs,
+verified runtime records and opaque image/owned-code readback35/31/12/11 blocks.
+Evidence: `runs/fir-r6/noalias-{numerical,guard,read-fault,write-fault}`.
+The fresh benchmark capture qualifies323 cases,44 readback blocks and28 scaling
+points with zero errors,instability or unresolved overhead. B3N4 now passes
+53.036/55.052; B7N4 improves79.058->76.058 but still misses71.052. Five misses
+remain, including B31/63/127N16 and B512N64. No final all-parity pair is claimed.
+Evidence: `runs/fir-r6/noalias-capture-1`. Parent results below remain separate.
 
 The restored `fir-tiny4-restored-v1` candidate is qualified at committed source
 240d30c. Fresh numerical/lifecycle tests pass2261 cases; the fresh host build
