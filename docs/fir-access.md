@@ -2,17 +2,21 @@
 
 ## Current linear-window candidate
 
-The current experimental candidate is `fir-tiny4-gpr-v1`, parent54b795f.
-Only MVE tiny4_long is replaced: coefficients b3..b0 remain in r4..r7;
-history newest-to-oldest uses r8..r10. A32-byte aligned frame preserves r4..r10
-and LR; q0..q2 are caller-saved. B1 is a stackless scalar path; the unchanged
-dispatcher handles B2/B3. Full vectors use the existing shift identity, while
-VCTP predicates every partial source load/output store. Partial history uses
-explicit valid scalar inputs and saved old carries. No coefficient padding,
-allocation,public order,alignment or API change. Instance offsets are asserted
-at compile time. Host7/7 passes;final owned code audit,target safety and timing
-are pending. Do not treat this unmeasured successor as better than54b795f.
+The current experiment `fir-tiny4-gpr-tails-v1` splits the residual paths of
+measured6456a49. Its GPR coefficient prologue,32-byte frame,stacklessB1 and
+full-vector loop stay unchanged. R1 computes one scalar output and retains
+src0/oldh0/oldh1. R2 predicates both memory operations and retains
+src1/src0/oldh0. R3 implies B>=7; four contiguous windows read src[B-7,B),
+recompute/write dst[B-4,B),and retain src[B-1],src[B-2],src[B-3]. No public
+contract or allocation change. Host7/7 passes;fresh target qualification pending.
 
+Parent `fir-tiny4-gpr-v1`,6456a49, passed host7/7,target2261/lifecycle,MPU6460,
+both controls,full owned audit and readback38/34/12/11. Besides tiny4_long,the
+compiler renamed registers in tiny2/tiny3 without changing their bounds.
+Qualified323/47-block timing and28-point scaling have zero protocol errors,
+instability or unresolved overhead,but fail B5/B7N4=74.050781/71.051758 cycles.
+B1/B4/B8 improve to38.030/52.051/64.036;B2/B3 unchanged. The parent is rejected
+for its new B5 miss;best measured54b795f remains separate. Evidence runs/fir-r9/gpr-*.
 
 The prior source was the rejected experiment `fir-tiny4-overlap-scheduled-v1`,
 measured at commit 87ecc66. Its q0/q1 overlap schedule removes the earlier
