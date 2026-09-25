@@ -398,11 +398,10 @@ static inline void fir_tail16(const float32_t *samples,
 #endif
 
 
-KDA_NOINLINE void fir_small(const kda_fir_instance_f32 *S,
+KDA_INLINE static void fir_small_core(const kda_fir_instance_f32 *S,
     const float32_t *__restrict pSrc, float32_t *__restrict pDst,
-    uint32_t blockSize)
+    uint32_t blockSize, uint32_t count)
 {
-    const uint32_t count = S->num_taps;
 #if defined(__clang__)
     __builtin_assume(count > 4U && count <= 32U && blockSize <= 8U);
 #endif
@@ -426,9 +425,10 @@ KDA_NOINLINE void fir_small(const kda_fir_instance_f32 *S,
         }
         vstrwq_p_f32(pDst,sum,active);
     }
+    /* The rounded vector retention also writes up to three scratch words.
+     * Both spans stay in the initialized work allocation, even when B<H. */
     for (uint32_t k = 0; k < prefix; k += 4U) {
-        const mve_pred16_t active = vctp32q(prefix-k);
-        vstrwq_p_f32(history+k,vldrwq_z_f32(history+blockSize+k,active),active);
+        vstrwq_f32(history+k,vldrwq_f32(history+blockSize+k));
     }
 #else
     for (uint32_t i = 0; i < blockSize; ++i) { history[prefix+i] = pSrc[i]; }
@@ -439,6 +439,24 @@ KDA_NOINLINE void fir_small(const kda_fir_instance_f32 *S,
     }
     for (uint32_t k = 0; k < prefix; ++k) { history[k] = history[blockSize+k]; }
 #endif
+}
+
+KDA_NOINLINE void fir_small(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    fir_small_core(S,pSrc,pDst,blockSize,S->num_taps);
+}
+
+KDA_NOINLINE void fir_small7(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    fir_small_core(S,pSrc,pDst,blockSize,7U);
+}
+
+KDA_NOINLINE void fir_small8(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    fir_small_core(S,pSrc,pDst,blockSize,8U);
 }
 
 KDA_NOINLINE static void fir_window(const kda_fir_instance_f32 *S,
@@ -517,8 +535,27 @@ KDA_INLINE static void fir_fixed_outputs(const float32_t *__restrict samples,
     /* A valid float buffer has a representable byte span. Exposing that
      * public precondition also proves the four-sample loop cannot wrap. */
     __builtin_assume(length <= SIZE_MAX / sizeof(float32_t));
+    uint32_t first = 0;
+    if (count == 8U) {
 #pragma clang loop unroll(disable)
-    for (uint32_t i = 0; i < length; i += 4U) {
+        for (; first + 8U <= length; first += 8U) {
+            fir_tile8(samples+first,coefficients,output+first,8U);
+        }
+        if (length-first > 4U) {
+            const mve_pred16_t active = vctp32q(length-first-4U);
+            float32x4_t a = vmulq_n_f32(vldrwq_f32(samples+first),coefficients[0]);
+            float32x4_t b = vmulq_n_f32(vldrwq_z_f32(samples+first+4U,active),coefficients[0]);
+            for (uint32_t k = 1; k < 8U; ++k) {
+                a = vfmaq_n_f32(a,vldrwq_f32(samples+first+k),coefficients[k]);
+                b = vfmaq_n_f32(b,vldrwq_z_f32(samples+first+4U+k,active),coefficients[k]);
+            }
+            vstrwq_f32(output+first,a);
+            vstrwq_p_f32(output+first+4U,b,active);
+            first = length;
+        }
+    }
+#pragma clang loop unroll(disable)
+    for (uint32_t i = first; i < length; i += 4U) {
         const mve_pred16_t active = vctp32q(length-i);
         float32x4_t sum = vdupq_n_f32(0.0f);
 #pragma clang loop unroll(full)
@@ -554,6 +591,20 @@ KDA_INLINE static void fir_medium_outputs(const float32_t *__restrict samples,
     if (i + 8U <= length) {
         fir_tile8(samples+i, coefficients, output+i, count);
         i += 8U;
+    }
+    if (length-i < 4U) {
+#pragma clang loop unroll(disable)
+        for (; i < length; ++i) {
+            float32x4_t partial = vdupq_n_f32(0.0f);
+#pragma clang loop unroll(disable)
+            for (uint32_t k = 0; k < count; k += 4U) {
+                const mve_pred16_t active = vctp32q(count-k);
+                partial = vfmaq_f32(partial,vldrwq_z_f32(coefficients+k,active),
+                                    vldrwq_z_f32(samples+i+k,active));
+            }
+            output[i] = (vgetq_lane_f32(partial,0)+vgetq_lane_f32(partial,1))+
+                        (vgetq_lane_f32(partial,2)+vgetq_lane_f32(partial,3));
+        }
     }
 #pragma clang loop unroll(disable)
     for (; i < length; i += 4U) {
@@ -684,14 +735,14 @@ KDA_NOINLINE void fir_fixed6(const kda_fir_instance_f32 *S,
 KDA_NOINLINE void fir_fixed7(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
 {
-    if (blockSize <= 8U) { fir_small(S,pSrc,pDst,blockSize); return; }
+    if (blockSize <= 8U) { fir_small7(S,pSrc,pDst,blockSize); return; }
     fir_fixed(S, pSrc, pDst, blockSize, 7U);
 }
 
 KDA_NOINLINE void fir_fixed8(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
 {
-    if (blockSize <= 8U) { fir_small(S,pSrc,pDst,blockSize); return; }
+    if (blockSize <= 8U) { fir_small8(S,pSrc,pDst,blockSize); return; }
     fir_fixed(S, pSrc, pDst, blockSize, 8U);
 }
 

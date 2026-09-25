@@ -109,10 +109,16 @@ changing block sizes.
 N=5..32 with B<=8 uses a smaller fixed-history helper. It accumulates outputs
 directly in vector lanes, using a full eight-output tile at B=8, one partial
 vector for B<=4, or a full first vector and partial second vector at B=5..7.
-Input append and ascending history retention are predicated vector copies.
+Input append is predicated. Ascending history retention copies round_up(N-1,4)
+words using full vectors inside initialized workspace; up to three extra words
+are scratch. Fixed N7/8 use constant-count short helpers. Public buffers do not
+require padding. Fixed N8 with B>8 uses eight-output tiles and a bounded masked
+second vector for five-to-seven-output remainders.
 
 For B>8, N=9..32 rounds the history boundary up to16 outputs (E<=32), with the existing
-sixteen/eight-output tiles followed by predicated four-output tails. Its tap loop
+sixteen/eight-output tiles followed by predicated four-output tails. A final
+one-to-three-output remainder instead uses bounded tap-vector dot products.
+Its tap loop
 retains a runtime count to avoid spilling a large set of hoisted coefficients.
 Boundary append and final retention are bounded tail-predicated copies; short
 blocks retain history with an ascending overlap-safe copy. The full N+127

@@ -11,3 +11,5 @@
 runs/
 profile/
 outputs/
+__pycache__/
+/CHECKPOINT.md

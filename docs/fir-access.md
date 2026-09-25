@@ -2,7 +2,7 @@
 
 ## Current linear-window candidate
 
-Candidate `fir-window-tail-v1` uses exactly N public/prepared coefficients and N+127
+Candidate `fir-fixed-tail-loops-v1` uses exactly N public/prepared coefficients and N+127
 work-window floats. Instance/state ABI sizes are16/8 bytes; state.next is the
 history start in [0,128] for N>32, zero for N<=32. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.
@@ -34,8 +34,8 @@ changing block sizes. The fixed5..8 helpers tail-branch to small for B<=8; their
 remaining B>8 path can load the complete boundary without overread. All possible
 owned helper sections are explicit residency roots; cross-reference closure
 alone would miss the initialized indirect branch. Readback includes these roots.
-Frames are init32 plus clear-helper usage, scale8, fixed5/6/7/8=28/36/44/44;
-tiny2/3/4=16/28/36, small28, short36, medium72 and window104.
+Frames are init32 plus clear-helper usage, scale8, fixed5/6/7/8=28/36/44/52;
+tiny2/3/4=16/28/36, small28, small7/8=20/20, short36, medium80 and window104.
 Tiny2/3/4 and small are audited again in
 `runs/fir-r4/window-tail-numerical/changed-disassembly.txt`. Tiny3/4 now use
 predicated source/output vectors for two/three remainders, but retain history
@@ -43,6 +43,33 @@ from valid source elements rather than the discarded inactive-lane carries.
 With zero remainder they store the GPR carries directly. Tiny2 still compiles
 to scalar tails. Small-window arithmetic loads are unpredicated only inside
 the already initialized N+127 work allocation; no caller buffer is padded.
+
+The complete changed fixed7/fixed8/medium/small/small7/small8 assembly is audited
+in `runs/fir-r4/fixed-tail-loops-numerical/changed-disassembly.txt`. Fixed7/8
+tail-branch to constant-count small7/8 for B<=8. Small retention now copies
+R=round_up(H,4) words from work[B..B+R) to work[0..R), using full vector
+loads/stores; each load precedes its store. The largest read index is39 for
+B<=8,N<=32, inside initialized N+127 storage. Up to three extra destination
+words are scratch and never change the H retained samples. The generic helper
+emits a full-width VSTRB after VLDRW; it still copies exactly sixteen bytes per
+iteration. Fixed small7/8 emit two full vector copies.
+
+Fixed8 now uses eight-output tiles for the complete boundary and suffix tiles.
+For suffix remainder R=5..7, every first-vector load/store is full and every
+second-vector load/store is predicated by R-4. Maximum active relative sample
+index is (N-1)+(R-1), including the hoisted final-tap second-vector load.
+R=1..4 uses a DLSTP/LETP four-output tail. Public input is never treated as
+padded. Coefficients are scalar-loaded only at indices0..7.
+
+Medium remainders of1..3 outputs now use one tap-vector dot product per output,
+with DLSTP/LETP count N predicating both coefficient/sample loads and the FMA.
+The scalar reduction reads all four initialized accumulator lanes. Each result
+stores one float; the maximum sample index is i+N-1. The same proof applies to
+the internal boundary and direct suffix. Disabling unrolling keeps both copies
+of this tap loop compact. No changed processing helper calls a runtime routine.
+The previous expanded-loop prototype is retained as rejected without timing;
+its112-byte frame is not evidence of a measured slowdown. Fresh MPU and PMU
+qualification remains required for this successor.
 
 | Path | Access bounds and emitted implementation |
 |---|---|
@@ -68,9 +95,7 @@ the already initialized N+127 work allocation; no caller buffer is padded.
 | Chunk advance | Advances source/destination by L and decreases positive remaining B by L. Chunk indices stay <=128; no B+N arithmetic is used. |
 
 The public dispatcher tail-branches to scale, specialized tiny/fixed, or general
-window helpers. Scale has an8-byte frame; tiny2/3/4 have16/24/32-byte frames;
-fixed5/6/7/8 have32/48/48/56-byte frames; medium has72 bytes and general window
-has104 bytes; paired short-block has36 bytes and small fixed-history has28 bytes. None calls
+window helpers. Current frame sizes are listed above. None calls
 a runtime helper during processing. Specialized helper symbols have external
 linkage to preserve their four-register ABI and tail calls, but are not declared
 in the public header. The general window helper assumes N>4, guaranteed by the public
