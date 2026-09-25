@@ -6,7 +6,18 @@ The current experiment `fir-tiny4-gpr-window-v1` replaces only R1 of7e43f87.
 B>=5 and cursor=B-1; contiguous q1 reads src[B-4,B),q2 reads exact c[0,4).
 Scalar lanes compute b1*x[B-2]+b2*x[B-3]+b3*x[B-4]+b0*x[B-1]. Store only
 dst[B-1] and retain [src[B-1],oldh0,oldh1]. Only caller-saved q0..q2 are used;
-the32-byte frame and all other paths stay unchanged. Host7/7;target gates pending.
+the32-byte frame and all other paths stay unchanged. Measured source97194ca
+passes host7/7,target2261/lifecycle,MPU6460,both expected fault controls and
+38/34/12/11 safety readback blocks. Full26-function direct-parent comparison
+changes only R1 plus its following branch relocation;guard/benchmark processing
+instructions match numerical. Full owned audit and evidence: runs/fir-r9/gpr-window-*.
+
+Qualified323 timing retains47 image/code blocks,31 paired batches,zero errors,
+instability or unresolved overhead,and all28 scaling points. B7 stays fixed at
+70.050781/71.051758. B5 improves3 cycles to72.050781 but still exceeds71.051758.
+This sole miss rejects acceptance;no final pair/T9. Prior best54b795f remains
+distinct. OLS a=.6465250533371024,b=.7475101653002714,c=1.1338311112298893,
+d=141.5079037646858. No overhead subtraction or acceptance waiver.
 
 Parent7e43f87 `fir-tiny4-gpr-tails-v1` passes full numerical/safety/image gates
 and qualified323 timing with47 readback blocks and28 scaling points. R3 fixes
