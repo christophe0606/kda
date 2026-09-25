@@ -21,7 +21,10 @@ branch or return. The existing long body remains fully audited (frame36).
 After expanding lifecycle tests, emitted owned instruction encodings are identical
 to the first leaf audit aside from relocation addresses. Target2261 and mixed
 block1..7/long transitions plus reinitialization pass; host7/7 passes. Fresh MPU
-and PMU qualification remain pending. Earlier tiny4 notes below are historical.
+and both controls pass; capture1 qualifies323 but has9 parity losses and is a
+rejected performance regression (B1/2/3/4/5/7 N4=68/71/71/56/94/97 cycles).
+Full43 opaque readback blocks and28 scaling points are retained under
+`runs/fir-r5/tiny4-leaf-*`. Earlier tiny4 notes below are historical.
 
 
 Candidate `fir-tiny4-leaf-v1` uses exactly N public/prepared coefficients and N+127
