@@ -183,7 +183,11 @@ full-vector/R0/R1 bounds; R2/R3 use shared runtime VCTP followed by fixed retent
 The compiler merges arithmetic tails; all VPT blocks are consumed, no unexpected
 memory access occurs. Frames0/24/36 include spills; no processing runtime calls.
 All emitted helper sections are already residency roots. Host7/7,target2261 and
-lifecycle pass. Fresh MPU controls and PMU remain pending.
+lifecycle pass. Fresh Round5 guard6460 and both expected controls pass at
+`runs/fir-r5/tiny4-short-{guard,read-fault,write-fault}`. Capture1 qualifies
+all323 measurements with44 opaque readback blocks and28 scaling points, but
+has6 parity failures. B2N4 passes53.036/55.052; B3N4 misses57.036/55.052;
+B7N4 regresses79.058/71.052. This is not final parity acceptance.
 
 | Path | Access bounds and emitted implementation |
 |---|---|
