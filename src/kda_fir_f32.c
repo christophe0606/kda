@@ -752,17 +752,26 @@ KDA_INLINE static void fir_fixed(const kda_fir_instance_f32 *S,
     const float32_t *__restrict coefficients = S->prepared;
     const size_t prefix = count - 1U;
     const uint32_t boundary = (uint32_t)((prefix + 3U) & ~(size_t)3U);
-    const uint32_t edge = blockSize < boundary ? blockSize : boundary;
-    /* Only the first outputs need samples from the preceding public call. */
+    /* The fixed-tap wrappers route B<=8 to the small helpers. Boundary is
+     * four or eight, so these are complete vectors inside both public spans. */
+    const uint32_t edge = boundary;
 #if KDA_FIR_MVE
     for (uint32_t i = 0; i < edge; i += 4U) {
-        const mve_pred16_t active = vctp32q(edge-i);
-        vstrwq_p_f32(history+prefix+i, vldrwq_z_f32(pSrc+i,active), active);
+        vstrwq_f32(history+prefix+i, vldrwq_f32(pSrc+i));
+    }
+#pragma clang loop unroll(disable)
+    for (uint32_t i = 0; i < edge; i += 4U) {
+        float32x4_t sum = vdupq_n_f32(0.0f);
+#pragma clang loop unroll(full)
+        for (size_t k = 0; k < count; ++k) {
+            sum = vfmaq_n_f32(sum,vldrwq_f32(history+i+k),coefficients[k]);
+        }
+        vstrwq_f32(pDst+i,sum);
     }
 #else
     for (uint32_t i = 0; i < edge; ++i) { history[prefix+i] = pSrc[i]; }
-#endif
     fir_fixed_outputs(history, coefficients, pDst, edge, count);
+#endif
     if (blockSize > edge) {
         fir_fixed_outputs(pSrc+edge-prefix, coefficients, pDst+edge,
                           blockSize-edge, count);

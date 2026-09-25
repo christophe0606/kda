@@ -2,7 +2,7 @@
 
 ## Current linear-window candidate
 
-Candidate `fir-medium-window-v1` uses exactly N public/prepared coefficients and N+127
+Candidate `fir-fixed-boundary-v1` uses exactly N public/prepared coefficients and N+127
 work-window floats. Instance/state ABI sizes are16/8 bytes; state.next is the
 history start in [0,128] for N>32, zero for N<=32. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.
@@ -34,7 +34,7 @@ changing block sizes. The fixed5..8 helpers tail-branch to small for B<=8; their
 remaining B>8 path can load the complete boundary without overread. All possible
 owned helper sections are explicit residency roots; cross-reference closure
 alone would miss the initialized indirect branch. Readback includes these roots.
-Frames are init32 plus clear-helper usage, scale8, fixed5/6/7/8=28/36/44/44;
+Frames are init32 plus clear-helper usage, scale8, fixed5/6/7/8=28/32/36/40;
 tiny2/3/4=16/28/36, small28, small7/8=20/20, short36, medium88, medium_window56 and window104.
 Tiny2/3/4 and small are audited again in
 `runs/fir-r4/window-tail-numerical/changed-disassembly.txt`. Tiny3/4 now use
@@ -100,8 +100,26 @@ overlap only recomputes previously produced outputs using identical tap order.
 Input/output are disjoint. If L<16, the original predicated tail is retained.
 Source base pSrc+E-H and L=B-E therefore still end exactly at pSrc[B-1].
 No processing runtime calls occur; stack spills are bounded by the frames above.
-Host7/7 and target2261/lifecycle pass; fresh MPU and timing qualification are
-pending. Post-audit unused-parameter casts affect no target instructions.
+Host7/7, target2261/lifecycle, MPU6460 and both expected fault controls pass.
+The committed benchmark capture qualifies all323 cases with20 parity failures;
+complete opaque image/readback and all28 scaling points are archived under
+`runs/fir-r4/medium-window-capture-1`. Post-audit unused-parameter casts affect
+no target instructions. Final all-case parity remains pending.
+
+The fixed-boundary successor is fully audited in
+`runs/fir-r4/fixed-boundary-numerical/changed-disassembly.txt`, covering fixed5..8.
+Each wrapper branches to its existing short helper for B<=8. Otherwise
+E=round_up(N-1,4) is4 or8, strictly less than B. The append reads exactly
+source[0..E) and writes work[H..H+E), H=N-1. AC6 scalarizes this copy into
+bounded LDR/LDRD/STR/STRD accesses. The boundary computes one complete vector
+for N5, or two for N6..8, with alternating unpredicated loads and arithmetic;
+maximum work index is E+N-2<=14. Stores cover exactly output[0..E).
+Coefficient reads are exactly[0..N). The direct suffix uses DLSTP/LETP for B-E
+outputs and shifted source base E-H; its final active sample is source[B-1].
+Retention uses bounded scalar/multiple loads from source[B-H..B) to work[0..H).
+All stack accesses fit the frames above; there are no new runtime calls.
+Host7/7 and target2261/lifecycle pass. MPU controls and timing are pending for this
+successor; the medium-window results above remain the last measured evidence.
 
 | Path | Access bounds and emitted implementation |
 |---|---|
