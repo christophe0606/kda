@@ -2,16 +2,31 @@
 
 ## Current linear-window candidate
 
-The restored candidate uses the exact `fir-tiny4-short-v1` kernel source from
-7fc04aa, retaining the expanded lifecycle tests. Its complete tiny4/short/long
-instruction encodings match the original audit (frames0/24/36), as checked in
-`runs/fir-r5/restored-short-numerical/changed-disassembly.txt` and
-`runs/fir-r5/restored-source-identity.json`. The source/access proof for that
-candidate applies unchanged. Host7/7 and fresh target2261/expanded mixed-block
-and reinitialization lifecycle checks pass. Its new whole-image timing is not measured: the qualified six-loss
-capture belongs to d667480 and remains explicitly separate. The following leaf
-and vector-coefficient descriptions document rejected experiments.
+The current experimental successor is `fir-tiny4-noalias-v1`. It adds restrict
+only to the existing tiny4 residual helper's history/source/output pointers,
+matching the already required disjoint-buffer contract. Allocation sizes, public
+order, arithmetic and valid retained samples are unchanged. Diagnostic assembly
+is archived in `runs/fir-r6/tiny4-noalias-diagnostic`; performance and fresh
+committed-image safety remain pending. The qualified parent is documented below.
 
+
+The restored `fir-tiny4-restored-v1` candidate is qualified at committed source
+240d30c. Fresh numerical/lifecycle tests pass2261 cases; the fresh host build
+passes7/7. All24 emitted owned functions (including init/reset and every helper)
+have identical complete instruction listings to the preceding restoration audit,
+verified in `runs/fir-r6/restored-numerical/owned-identity.json`. The full listing is
+`runs/fir-r6/restored-numerical/candidate-only-disassembly.txt`; the source bounds
+below apply without changes. MPU6460 and both expected read/write controls pass
+in `runs/fir-r6/restored-{guard,read-fault,write-fault}`. The controls identify
+PC0x1f7c/0x1d12, CFSR0x82 and MMFAR0x200015a0. Exact image and owned-code readback
+passes for all four safety modes, with35/31/12/11 blocks respectively.
+
+The fresh committed benchmark and44 opaque readback blocks qualify all323 cells
+with zero protocol errors, instability or unresolved overhead, reproducing the
+same six parity misses. Evidence is `runs/fir-r6/restored-capture-1`, including
+all28 scaling points. Prior d667480 evidence remains separate. No final pair or
+all-case parity acceptance is claimed. Descriptions below explicitly identified
+as leaf/vector experiments are historical rejected candidates.
 
 Historical rejected vector-coefficient successor audit:
 `runs/fir-r5/tiny4-vector-coeff-numerical/changed-disassembly.txt` covers the
@@ -30,7 +45,7 @@ candidate; retained under `runs/fir-r5/tiny4-vector-coeff-*`.
 The following leaf and tiny4 descriptions retain historical candidate evidence.
 
 
-The current tiny4 leaf is audited in
+The rejected tiny4 leaf was audited in
 `runs/fir-r5/tiny4-leaf-lifecycle-numerical/changed-disassembly.txt`.
 Its B>=8 branch occurs before the prologue and preserves all four processing
 arguments. B1..7 saves/restores exactly r4-r6/LR (16-byte aligned frame), uses

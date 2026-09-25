@@ -77,8 +77,9 @@ KDA_NOINLINE static void fir_scale(const kda_fir_instance_f32 *S,
 }
 
 #if KDA_FIR_MVE
-KDA_INLINE static void fir_tiny4_tail(float32_t *history,
-    const float32_t *source, float32_t *output, uint32_t length, mve_pred16_t active,
+KDA_INLINE static void fir_tiny4_tail(float32_t *__restrict history,
+    const float32_t *__restrict source, float32_t *__restrict output,
+    uint32_t length, mve_pred16_t active,
     uint32_t c0, uint32_t c1, uint32_t c2,
     float32_t b0, float32_t b1, float32_t b2, float32_t b3)
 {
