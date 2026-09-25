@@ -102,11 +102,24 @@ KDA_INLINE static void fir_tiny4_last4(float32_t *__restrict history,
     const float32_t *__restrict source, float32_t *__restrict output,
     float32_t b0, float32_t b1, float32_t b2, float32_t b3)
 {
-    float32x4_t sum = vmulq_n_f32(vldrwq_f32(source-1),b0);
-    sum = vfmaq_n_f32(sum,vldrwq_f32(source-2),b1);
-    sum = vfmaq_n_f32(sum,vldrwq_f32(source-3),b2);
-    sum = vfmaq_n_f32(sum,vldrwq_f32(source-4),b3);
-    vstrwq_f32(output-1,sum);
+    uint32_t c0,c1,c2,c3;
+    memcpy(&c0,&b0,4); memcpy(&c1,&b1,4);
+    memcpy(&c2,&b2,4); memcpy(&c3,&b3,4);
+    /* Reuse one load register to keep retention from extending vector
+     * lifetimes into callee-saved registers. */
+    __asm volatile(
+        "vldrw.u32 q0, [%[source], #-4]\n"
+        "vmul.f32 q0, q0, %[b0]\n"
+        "vldrw.u32 q1, [%[source], #-8]\n"
+        "vfma.f32 q0, q1, %[b1]\n"
+        "vldrw.u32 q1, [%[source], #-12]\n"
+        "vfma.f32 q0, q1, %[b2]\n"
+        "vldrw.u32 q1, [%[source], #-16]\n"
+        "vfma.f32 q0, q1, %[b3]\n"
+        "vstrw.32 q0, [%[output], #-4]\n"
+        : : [source] "r" (source), [output] "r" (output),
+            [b0] "r" (c0), [b1] "r" (c1), [b2] "r" (c2), [b3] "r" (c3)
+        : "q0", "q1", "memory");
     history[0] = source[2];
     history[1] = source[1];
     history[2] = source[0];

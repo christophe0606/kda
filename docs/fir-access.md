@@ -2,6 +2,13 @@
 
 ## Current linear-window candidate
 
+The current experiment `fir-tiny4-overlap-scheduled-v1` fixes the overlap
+arithmetic to q0/q1 with owned inline assembly and preserves the branch hint.
+No bounds/API/storage change; target qualification pending. The branch-only
+parent9314acd passed numerical/lifecycle and38 readback blocks but was not
+selected for timing after codegen introduced d8/d9 saves;it remains not_measured.
+
+
 The next experimental candidate `fir-tiny4-overlap-branch-v1` keeps the same
 overlap-tail bounds below, favors the complete-vector exit with a branch hint,
 and marks the tail helper buffers restrict under the existing disjoint contract.
