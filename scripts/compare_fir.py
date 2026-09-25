@@ -28,8 +28,9 @@ def compare(a, b):
             if drift > .01:
                 errors.append(f'cross-capture drift: {x["block"]},{x["taps"]},{kernel}')
         rows.append(row)
-    return {'errors':errors,'qualified_pair':not errors,
-            'parity_both':not errors and all(r['observed_parity'] for r in a['cases']+b['cases']),
+    parity_both = all(r['observed_parity'] for r in a['cases']+b['cases'])
+    return {'errors':errors,'qualified_pair':not errors and parity_both,
+            'parity_both':not errors and parity_both,
             'cases':rows}
 
 

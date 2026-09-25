@@ -56,18 +56,35 @@ def check(profile, capture, output):
     with contextlib.redirect_stdout(io.StringIO()):
         good = summarize(profile,capture)
     assert good['qualified'], {k:v for k,v in good.items() if k not in ('cases','metadata')}
-    assert compare(good,good)['qualified_pair']
+    real_pair = compare(good,good)
+    assert real_pair['qualified_pair'] == all(r['observed_parity'] for r in good['cases'])
+    # An explicitly synthetic in-memory control exercises successful acceptance
+    # even when the real capture still has losses. Never export it as evidence.
+    passing = copy.deepcopy(good)
+    for row in passing['cases']:
+        row['candidate']['median_cycles'] = min(row['candidate']['median_cycles'],
+                                                row['baseline']['median_cycles'])
+        row['observed_parity'] = True
+    assert compare(passing,passing)['qualified_pair']
     for name in ('missing_case','wrong_identity','changed_reps','drift','parity'):
-        changed = copy.deepcopy(good)
+        changed = copy.deepcopy(passing)
         if name == 'missing_case': changed['cases'].pop()
         elif name == 'wrong_identity': changed['metadata']['build_id'] = 'wrong'
         elif name == 'changed_reps': changed['cases'][0]['repetitions'] *= 2
         elif name == 'drift': changed['cases'][0]['candidate']['median_cycles'] *= 1.02
-        else: changed['cases'][0]['observed_parity'] = False
-        result = compare(good,changed)
-        if name == 'parity': assert not result['parity_both']
+        else:
+            changed['cases'][0]['candidate']['median_cycles'] = changed['cases'][0]['baseline']['median_cycles'] * 1.001
+            changed['cases'][0]['observed_parity'] = False
+        result = compare(passing,changed)
+        if name == 'parity':
+            # Identical complete captures have zero drift: parity alone must
+            # prevent qualification, including when only the first run fails.
+            for first,second in ((changed,changed),(changed,passing),(passing,changed)):
+                pair = compare(first,second)
+                assert not pair['parity_both'] and not pair['qualified_pair']
+            assert not compare(changed,changed)['errors']
         else: assert result['errors'], name
-    print(f'{len(changes)+7} invalid-evidence/pair controls rejected; positive pair control passed')
+    print(f'{len(changes)+9} invalid-evidence/pair controls rejected; synthetic positive pair control passed')
 
 
 if __name__ == '__main__':
