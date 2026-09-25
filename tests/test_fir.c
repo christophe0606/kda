@@ -153,6 +153,40 @@ static int independent_variable_blocks(void)
     return 1;
 }
 
+static int specialized_variable_blocks(void)
+{
+    static const uint32_t sizes[] = {1,31,8,64,3,32,17,7,33};
+    float coefficients[17], prepared[17], history[17U + KDA_FIR_CHUNK - 1U];
+    float input[256], output[256];
+    kda_fir_state_f32 state;
+    kda_fir_instance_f32 instance;
+    /* Rebuild the dispatch choice across a specialized/generic boundary,
+     * change coefficients, and cross small/window/direct block paths. */
+    for (unsigned pass = 0; pass < 3; ++pass) {
+        const uint16_t count = pass == 1 ? 17 : 16;
+        for (size_t k = 0; k < count; ++k) {
+            coefficients[k] = (float)((int)((k*7U+pass*3U)%19U)-9)/32.0f;
+        }
+        for (size_t i = 0; i < 256; ++i) {
+            input[i] = (float)((int)((i*13U+pass)%31U)-15)/16.0f;
+        }
+        CHECK(kda_fir_init_f32(&instance,&state,count,coefficients,count,
+                              prepared,17,history,sizeof history/sizeof history[0]));
+        size_t offset = 0, step = 0;
+        while (offset < 256) {
+            uint32_t block = sizes[step++ % (sizeof sizes/sizeof sizes[0])];
+            if (block > 256-offset) { block = (uint32_t)(256-offset); }
+            kda_fir_f32(&instance,input+offset,output+offset,block);
+            offset += block;
+        }
+        CHECK(outputs_match(coefficients,count,input,output,256));
+        kda_fir_reset_f32(&instance);
+        kda_fir_f32(&instance,input,output,256);
+        CHECK(outputs_match(coefficients,count,input,output,256));
+    }
+    return 1;
+}
+
 static int invalid_initialization(void)
 {
     const float coefficients[] = {3, 2, 1};
@@ -220,7 +254,7 @@ static int negative_controls(void)
 
 int fir_contract_lifecycle_tests(void)
 {
-    return lifecycle() && independent_variable_blocks() &&
+    return lifecycle() && independent_variable_blocks() && specialized_variable_blocks() &&
         invalid_initialization() && negative_controls();
 }
 

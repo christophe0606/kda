@@ -622,13 +622,13 @@ KDA_INLINE static void fir_medium_outputs(const float32_t *__restrict samples,
         fir_tile16(samples+i, coefficients, output+i, count);
     }
     if (length - i >= 13U) {
-        if (internal_window) {
-            fir_tail16_window(samples+i, coefficients, output+i, count, length-i);
-        } else if (i != 0U) {
+        if (i != 0U) {
             /* Recompute preceding outputs, ending exactly at the public end.
              * length>=16 here, so neither source nor destination goes before
              * its supplied span. Accumulation order is identical. */
             fir_tile16(samples+length-16U,coefficients,output+length-16U,count);
+        } else if (internal_window) {
+            fir_tail16_window(samples+i, coefficients, output+i, count, length-i);
         } else {
             fir_tail16(samples+i, coefficients, output+i, count, length-i);
         }
@@ -707,40 +707,36 @@ KDA_NOINLINE void fir_medium(const kda_fir_instance_f32 *S,
 {
     const uint32_t count = S->num_taps;
 #if defined(__clang__)
-    __builtin_assume(count > 8U && count <= 32U);
+    /* The dispatcher sends every B<=32 call to small or medium_window. */
+    __builtin_assume(count > 8U && count <= 32U && blockSize > 32U);
 #endif
     float32_t *__restrict history = S->state->history;
     const float32_t *__restrict coefficients = S->prepared;
     const uint32_t prefix = count - 1U;
-    const uint32_t boundary = (prefix + 15U) & ~15U;
-    const uint32_t edge = blockSize < boundary ? blockSize : boundary;
+    /* B>32 and 9<=N<=32 imply a complete one- or two-tile boundary. */
+    const uint32_t edge = count <= 17U ? 16U : 32U;
 #if KDA_FIR_MVE
 #pragma clang loop unroll(disable)
     for (uint32_t i = 0; i < edge; i += 4U) {
-        const mve_pred16_t active = vctp32q(edge-i);
-        vstrwq_p_f32(history+prefix+i, vldrwq_z_f32(pSrc+i,active), active);
+        vstrwq_f32(history+prefix+i, vldrwq_f32(pSrc+i));
     }
+    fir_tile16(history,coefficients,pDst,count);
+    if (edge == 32U) { fir_tile16(history+16U,coefficients,pDst+16U,count); }
 #else
     for (uint32_t i = 0; i < edge; ++i) { history[prefix+i] = pSrc[i]; }
-#endif
     fir_medium_outputs(history, coefficients, pDst, edge, count, 1);
-    if (blockSize > edge) {
-        fir_medium_outputs(pSrc+edge-prefix, coefficients, pDst+edge,
-                           blockSize-edge, count, 0);
-    }
-    if (blockSize >= prefix) {
+#endif
+    fir_medium_outputs(pSrc+edge-prefix, coefficients, pDst+edge,
+                       blockSize-edge, count, 0);
 #if KDA_FIR_MVE
 #pragma clang loop unroll(disable)
-        for (uint32_t k = 0; k < prefix; k += 4U) {
-            const mve_pred16_t active = vctp32q(prefix-k);
-            vstrwq_p_f32(history+k, vldrwq_z_f32(pSrc+blockSize-prefix+k,active), active);
-        }
-#else
-        for (uint32_t k = 0; k < prefix; ++k) { history[k] = pSrc[blockSize-prefix+k]; }
-#endif
-    } else {
-        for (uint32_t k = 0; k < prefix; ++k) { history[k] = history[blockSize+k]; }
+    for (uint32_t k = 0; k < prefix; k += 4U) {
+        const mve_pred16_t active = vctp32q(prefix-k);
+        vstrwq_p_f32(history+k, vldrwq_z_f32(pSrc+blockSize-prefix+k,active), active);
     }
+#else
+    for (uint32_t k = 0; k < prefix; ++k) { history[k] = pSrc[blockSize-prefix+k]; }
+#endif
 }
 
 KDA_INLINE static void fir_fixed(const kda_fir_instance_f32 *S,

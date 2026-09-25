@@ -2,7 +2,7 @@
 
 ## Current linear-window candidate
 
-Candidate `fir-short-output-v1` uses exactly N public/prepared coefficients and N+127
+Candidate `fir-medium-bounds-v1` uses exactly N public/prepared coefficients and N+127
 work-window floats. Instance/state ABI sizes are16/8 bytes; state.next is the
 history start in [0,128] for N>32, zero for N<=32. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.
@@ -133,7 +133,27 @@ words with DLSTP/LETP; small7/8 retain their already bounded rounded copies.
 Full changed small/small7/small8 assembly is audited in short-output-numerical;
 frames24/16/16 include all spills, no runtime calls. Isolated GNU14.3.1 compiler
 output also binds the declared accumulators to q0/q1 and emits bounded stores.
-Host7/7 and target2261/lifecycle pass; fresh MPU and PMU remain pending.
+Host7/7,target2261/lifecycle,MPU6460 and both expected controls pass. The slow
+read-fault startup recovered in the same session, without restart or reload.
+Capture1 qualifies323 with13 parity failures, complete opaque readback and full28
+scaling (a=0.650342711829). All N8 cases pass; final parity remains pending.
+
+The medium-bounds successor is audited in
+`runs/fir-r4/medium-tiles-numerical/changed-disassembly.txt` (entire medium and
+medium_window helpers; frames88/56, no processing runtime calls). The existing
+dispatcher guarantees B>32 and N9..32 for medium. E is16 for N<=17 and32 otherwise,
+so E<B. Full-vector append reads source[0..E), writes work[H..H+E), H=N-1.
+One explicit tile at0, and a second at16 only for E=32, store output[0..E).
+Their maximum work index E+N-2<=62 is within initialized N+127 storage. The
+direct suffix starts at source+E-H, length B-E; its final sample is source[B-1].
+Retention copies exactly source[B-H..B) under predicates to work[0..H).
+Internal windows now also use the overlapping last tile at L-16 for remainder
+13..15 when an earlier full tile exists. Start is nonnegative, final output L-1,
+final work sample L+N-2. Recomputed outputs use identical accumulation order.
+For internal L13..15 without a prior tile, the initialized padded-work tail
+remains; short direct tails retain predicates. Coefficient reads remain exactly N.
+Host7/7 and target2261 plus16->17->16 reinitialization with changing coefficients,
+mixed block paths, reset and one long block pass. Fresh MPU/PMU are pending.
 
 | Path | Access bounds and emitted implementation |
 |---|---|
