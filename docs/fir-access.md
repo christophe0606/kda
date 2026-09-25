@@ -2,20 +2,33 @@
 
 ## Current linear-window candidate
 
-The current experiment `fir-tiny4-overlap-scheduled-v1` fixes the overlap
-arithmetic to q0/q1 with owned inline assembly and preserves the branch hint.
-No bounds/API/storage change; target qualification pending. The branch-only
-parent9314acd passed numerical/lifecycle and38 readback blocks but was not
-selected for timing after codegen introduced d8/d9 saves;it remains not_measured.
+The current source is the rejected experiment `fir-tiny4-overlap-scheduled-v1`,
+measured at commit 87ecc66. Its q0/q1 overlap schedule removes the earlier
+branch table and callee-saved vector use, but introduces extra coefficient
+loads/transfers. Only `fir_tiny4_long` changes in the full 26-function comparison
+against 54b795f; its frame remains 36 bytes. No bounds/API/storage change.
+Fresh host 7/7, target 2261/lifecycle, MPU 6460 and both fault controls pass,
+with opaque image readback in every mode (38/34/12/11 safety blocks).
+The benchmark processing instructions match the audited numerical image.
 
+The complete 323-case capture is protocol-qualified with 47 readback blocks,
+zero errors, instability or unresolved overhead, but four parity failures:
+B1/N4=63.036133/55.051758, B4/N4=57.058105/57.051758,
+B5/N4=75.058105/71.051758 and B7/N4=77.058105/71.051758 cycles
+(candidate/CMSIS). B1/B4/B5 are new misses relative to 54b795f; even the small
+B4 miss remains a failure. All 28 scaling points are retained, with OLS
+a=0.6465250531626374. This candidate is rejected; no second acceptance capture
+or T9 is claimed. Evidence: `runs/fir-r8/scheduled-*`, including the complete
+parent comparison and owned access audit.
 
-The next experimental candidate `fir-tiny4-overlap-branch-v1` keeps the same
-overlap-tail bounds below, favors the complete-vector exit with a branch hint,
-and marks the tail helper buffers restrict under the existing disjoint contract.
-Fresh target evidence is pending. Its parent overlap-v1/e77e88f passes complete
-safety and a qualified323 capture, but has5 parity losses: B7 improves only
-76.058->75.058 and B1/B4/B5/B8 become failures. It is rejected; evidence retained
-under `runs/fir-r8/overlap-*`. Best measured selection remains54b795f below.
+The branch-only parent `fir-tiny4-overlap-branch-v1` (9314acd) passed host 7/7,
+target numerical/lifecycle and 38 readback blocks. It was not selected for
+timing after owned codegen introduced d8/d9 saves and a 56-byte frame; its
+performance remains `not_measured`, with no MPU/control/timing claim.
+The earlier overlap-v1/e77e88f passed complete safety and a qualified 323-case
+capture, but had five parity losses: B7 improved only 76.058 to 75.058 cycles
+while B1/B4/B5/B8 became failures. Its rejected evidence remains under
+`runs/fir-r8/overlap-*`. Best measured selection remains 54b795f below.
 
 
 The rejected experiment `fir-tiny4-overlap-v1` replaces the long tiny4
