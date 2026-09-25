@@ -2,7 +2,7 @@
 
 ## Current linear-window candidate
 
-Candidate `fir-tiny4-split-v1` uses exactly N public/prepared coefficients and N+127
+Candidate `fir-tiny4-short-v1` uses exactly N public/prepared coefficients and N+127
 work-window floats. Instance/state ABI sizes are16/8 bytes; state.next is the
 history start in [0,128] for N>32, zero for N<=32. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.
@@ -168,10 +168,22 @@ is saved before shifting only for R2. No history padding is read. Coefficients
 remain exactly indices0..3. Immediate scalar offsets replace residual address
 arithmetic;36-byte frame includes all spills and there are no runtime calls.
 The scalar host path and instance/reset contracts are unchanged. Host7/7 and
-target2261/lifecycle,MPU6460 and expected read control pass. The write control
-was programmed, but DAP stayed unresponsive after more than3 minutes of spaced
-status retries and a connection timeout. Its result and PMU remain unverified;
-VS Code intervention requested, with no duplicate launch.
+target2261/lifecycle,MPU6460 and both expected controls pass. The write control
+recovered after the user reported ready; no agent reload was issued. Qualified
+capture1 has7 parity failures with full opaque readback and28 scaling points.
+Tiny4 B2/B3/B7 improved from62/62/74 to58/60/72 cycles, still above55/55/71.
+
+The tiny4-short successor is completely audited in
+`runs/fir-r4/tiny4-short-abi-numerical/changed-disassembly.txt`. The dispatcher
+uses no stack and tail-branches: exactly B2/B3 reach short, all other positive
+B reach long. Short reads instance+4/+8,state+0,coefficients[0..4),history[0..3).
+VCTP B predicates the single source load/output store. Fixed history retention
+remains R2={source1,source0,oldc0},R3={source2,source1,source0}. Long preserves
+full-vector/R0/R1 bounds; R2/R3 use shared runtime VCTP followed by fixed retention.
+The compiler merges arithmetic tails; all VPT blocks are consumed, no unexpected
+memory access occurs. Frames0/24/36 include spills; no processing runtime calls.
+All emitted helper sections are already residency roots. Host7/7,target2261 and
+lifecycle pass. Fresh MPU controls and PMU remain pending.
 
 | Path | Access bounds and emitted implementation |
 |---|---|

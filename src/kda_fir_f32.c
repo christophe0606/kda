@@ -78,12 +78,11 @@ KDA_NOINLINE static void fir_scale(const kda_fir_instance_f32 *S,
 
 #if KDA_FIR_MVE
 KDA_INLINE static void fir_tiny4_tail(float32_t *history,
-    const float32_t *source, float32_t *output, uint32_t length,
+    const float32_t *source, float32_t *output, uint32_t length, mve_pred16_t active,
     uint32_t c0, uint32_t c1, uint32_t c2,
     float32_t b0, float32_t b1, float32_t b2, float32_t b3)
 {
     const uint32_t previous = c0;
-    const mve_pred16_t active = vctp32q(length);
     const float32x4_t current = vldrwq_z_f32(source,active);
     float32x4_t sum = vmulq_n_f32(current,b0);
     uint32x4_t delayed = vshlcq_u32(vreinterpretq_u32_f32(current),&c0,32);
@@ -137,10 +136,11 @@ KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
         return;
     }
     if (count == 4U && blockSize >= 2U) {
+        const mve_pred16_t active = vctp32q(blockSize);
         if (blockSize == 2U) {
-            fir_tiny4_tail(history,pSrc,pDst,2U,c0,c1,c2,b0,b1,b2,b3);
+            fir_tiny4_tail(history,pSrc,pDst,2U,active,c0,c1,c2,b0,b1,b2,b3);
         } else {
-            fir_tiny4_tail(history,pSrc,pDst,3U,c0,c1,c2,b0,b1,b2,b3);
+            fir_tiny4_tail(history,pSrc,pDst,3U,active,c0,c1,c2,b0,b1,b2,b3);
         }
         return;
     }
@@ -826,10 +826,36 @@ KDA_NOINLINE void fir_tiny3(const kda_fir_instance_f32 *S,
     fir_tiny(S, pSrc, pDst, blockSize, 3U);
 }
 
-KDA_NOINLINE void fir_tiny4(const kda_fir_instance_f32 *S,
+KDA_NOINLINE void fir_tiny4_short(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+#if KDA_FIR_MVE
+    float32_t *history = S->state->history;
+    const float32_t *c = S->prepared;
+    uint32_t c0,c1,c2;
+    memcpy(&c0,history,4); memcpy(&c1,history+1,4); memcpy(&c2,history+2,4);
+    const mve_pred16_t active = vctp32q(blockSize);
+    if (blockSize == 2U) {
+        fir_tiny4_tail(history,pSrc,pDst,2U,active,c0,c1,c2,c[3],c[2],c[1],c[0]);
+    } else {
+        fir_tiny4_tail(history,pSrc,pDst,3U,active,c0,c1,c2,c[3],c[2],c[1],c[0]);
+    }
+#else
+    fir_tiny(S,pSrc,pDst,blockSize,4U);
+#endif
+}
+
+KDA_NOINLINE void fir_tiny4_long(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
 {
     fir_tiny(S, pSrc, pDst, blockSize, 4U);
+}
+
+KDA_NOINLINE void fir_tiny4(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    if (blockSize == 2U || blockSize == 3U) { fir_tiny4_short(S,pSrc,pDst,blockSize); }
+    else { fir_tiny4_long(S,pSrc,pDst,blockSize); }
 }
 
 KDA_NOINLINE void fir_fixed5(const kda_fir_instance_f32 *S,
