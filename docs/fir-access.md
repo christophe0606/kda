@@ -2,6 +2,20 @@
 
 ## Current linear-window candidate
 
+Current vector-coefficient successor audit:
+`runs/fir-r5/tiny4-vector-coeff-numerical/changed-disassembly.txt` covers the
+entire tiny4 entry and long helper. B1 and B>=8 branch to long before any saves.
+B2..7 retains the leaf16-byte frame and identical source/output/history bounds.
+It loads exactly coefficient[0..4) into q2 once; s11,s10,s9,s8 feed b0..b3.
+The predicated residual source is copied to q3; history reads only its active
+s12/s13/s14 lanes as appropriate for R1/R2/R3. No source reread or speculative
+inactive-lane history write occurs. Only caller-clobbered q0-q3 are modified;
+r4-r6 and LR restore exactly. Register transfers precede VSHLC where possible,
+without changing operation ordering, predicates or public coefficient order.
+Full owned audit and host7/7,target2261/expanded lifecycle pass. MPU/PMU pending.
+The following leaf and tiny4 descriptions retain historical candidate evidence.
+
+
 The current tiny4 leaf is audited in
 `runs/fir-r5/tiny4-leaf-lifecycle-numerical/changed-disassembly.txt`.
 Its B>=8 branch occurs before the prologue and preserves all four processing
@@ -27,7 +41,7 @@ Full43 opaque readback blocks and28 scaling points are retained under
 `runs/fir-r5/tiny4-leaf-*`. Earlier tiny4 notes below are historical.
 
 
-Candidate `fir-tiny4-leaf-v1` uses exactly N public/prepared coefficients and N+127
+Candidate `fir-tiny4-vector-coeff-v1` uses exactly N public/prepared coefficients and N+127
 work-window floats. Instance/state ABI sizes are16/8 bytes; state.next is the
 history start in [0,128] for N>32, zero for N<=32. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.
