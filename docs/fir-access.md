@@ -2,6 +2,18 @@
 
 ## Current linear-window candidate
 
+The current experimental successor is `fir-direct16-64-v1`. Its N16 B>16 and
+N64 B>128 paths copy N inputs after the N-1 history boundary, compute complete
+16-output boundary tiles, then use current input directly for the suffix.
+N64 compacts its lazy history first when next!=0, and both paths finish with
+the last N-1 inputs at history0 and next=0. N16 small calls and N64 B<=128 use
+the existing helpers. Storage remains exactly N coefficients and N+127 history.
+For a final13..15 outputs, a complete overlapping tile is allowed only when
+B>=N+15: source starts B-N-15>=0 and ends B-1; outputs end B-1. Other remainders
+use existing bounded tails. These are source bounds only; emitted audit and
+fresh target safety/timing remain pending. Qualified parent evidence follows.
+
+
 The current best measured candidate is `fir-tiny4-noalias-v1`, source commit
 0d4774b. Its tiny4 residual helper uses restrict for history/source/output,
 expressing the existing disjoint-buffer contract. Public order, allocation sizes

@@ -902,6 +902,57 @@ KDA_NOINLINE void fir_dispatch_window(const kda_fir_instance_f32 *S,
     else { fir_window(S,pSrc,pDst,blockSize); }
 }
 
+KDA_INLINE static void fir_direct_fixed(const kda_fir_instance_f32 *S,
+    const float32_t *__restrict pSrc, float32_t *__restrict pDst,
+    uint32_t blockSize, uint32_t count)
+{
+    const uint32_t prefix = count - 1U;
+    float32_t *__restrict history = S->state->history;
+    const float32_t *__restrict coefficients = S->prepared;
+    /* The 64-tap short path may leave its history at a lazy offset. Bring
+     * that same stream to the front before preparing the boundary. */
+    if (count > 32U && S->state->next != 0U) {
+        const size_t offset = S->state->next;
+        for (uint32_t k = 0; k < prefix; ++k) { history[k] = history[offset+k]; }
+    }
+    for (uint32_t i = 0; i < count; ++i) { history[prefix+i] = pSrc[i]; }
+#if KDA_FIR_MVE
+    uint32_t i = 0;
+#pragma clang loop unroll(disable)
+    for (; i < count; i += 16U) { fir_tile16(history+i,coefficients,pDst+i,count); }
+#pragma clang loop unroll(disable)
+    for (; i + 16U <= blockSize; i += 16U) {
+        fir_tile16(pSrc+i-prefix,coefficients,pDst+i,count);
+    }
+    if (blockSize-i >= 13U && blockSize >= count+15U) {
+        /* Recompute at most three outputs so the last complete tile ends
+         * exactly at the public buffer end. Its source begins at B-N-15. */
+        fir_tile16(pSrc+blockSize-count-15U,coefficients,pDst+blockSize-16U,count);
+    } else if (i < blockSize) {
+        fir_medium_outputs(pSrc+i-prefix,coefficients,pDst+i,blockSize-i,count,0);
+    }
+#else
+    fir_medium_outputs(history,coefficients,pDst,count,count,1);
+    fir_medium_outputs(pSrc+count-prefix,coefficients,pDst+count,blockSize-count,count,0);
+#endif
+    for (uint32_t k = 0; k < prefix; ++k) { history[k] = pSrc[blockSize-prefix+k]; }
+    S->state->next = 0U;
+}
+
+KDA_NOINLINE void fir_direct16(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    if (blockSize <= 16U) { fir_dispatch_medium(S,pSrc,pDst,blockSize); return; }
+    fir_direct_fixed(S,pSrc,pDst,blockSize,16U);
+}
+
+KDA_NOINLINE void fir_direct64(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    if (blockSize <= 128U) { fir_dispatch_window(S,pSrc,pDst,blockSize); return; }
+    fir_direct_fixed(S,pSrc,pDst,blockSize,64U);
+}
+
 static kda_fir_processor_f32 select_processor(uint16_t num_taps)
 {
     switch (num_taps) {
@@ -913,6 +964,8 @@ static kda_fir_processor_f32 select_processor(uint16_t num_taps)
     case 6: return fir_fixed6;
     case 7: return fir_fixed7;
     case 8: return fir_fixed8;
+    case 16: return fir_direct16;
+    case 64: return fir_direct64;
     default: return num_taps <= 32U ? fir_dispatch_medium : fir_dispatch_window;
     }
 }

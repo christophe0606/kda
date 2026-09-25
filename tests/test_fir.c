@@ -155,10 +155,10 @@ static int independent_variable_blocks(void)
 
 static int specialized_variable_blocks(void)
 {
-    static const uint32_t sizes[] = {1,31,8,2,64,3,4,32,5,17,6,7,33};
-    static const uint16_t counts[] = {4,16,17,16,4};
-    float coefficients[17], prepared[17], history[17U + KDA_FIR_CHUNK - 1U];
-    float input[256], output[256];
+    static const uint32_t sizes[] = {1,31,8,2,64,3,4,32,5,17,6,7,33,129,127};
+    static const uint16_t counts[] = {4,16,17,16,4,64,63,64};
+    float coefficients[64], prepared[64], history[64U + KDA_FIR_CHUNK - 1U];
+    float input[512], output[512];
     kda_fir_state_f32 state;
     kda_fir_instance_f32 instance;
     /* Rebuild the dispatch choice across a specialized/generic boundary,
@@ -168,22 +168,22 @@ static int specialized_variable_blocks(void)
         for (size_t k = 0; k < count; ++k) {
             coefficients[k] = (float)((int)((k*7U+pass*3U)%19U)-9)/32.0f;
         }
-        for (size_t i = 0; i < 256; ++i) {
+        for (size_t i = 0; i < 512; ++i) {
             input[i] = (float)((int)((i*13U+pass)%31U)-15)/16.0f;
         }
         CHECK(kda_fir_init_f32(&instance,&state,count,coefficients,count,
-                              prepared,17,history,sizeof history/sizeof history[0]));
+                              prepared,64,history,sizeof history/sizeof history[0]));
         size_t offset = 0, step = 0;
-        while (offset < 256) {
+        while (offset < 512) {
             uint32_t block = sizes[step++ % (sizeof sizes/sizeof sizes[0])];
-            if (block > 256-offset) { block = (uint32_t)(256-offset); }
+            if (block > 512-offset) { block = (uint32_t)(512-offset); }
             kda_fir_f32(&instance,input+offset,output+offset,block);
             offset += block;
         }
-        CHECK(outputs_match(coefficients,count,input,output,256));
+        CHECK(outputs_match(coefficients,count,input,output,512));
         kda_fir_reset_f32(&instance);
-        kda_fir_f32(&instance,input,output,256);
-        CHECK(outputs_match(coefficients,count,input,output,256));
+        kda_fir_f32(&instance,input,output,512);
+        CHECK(outputs_match(coefficients,count,input,output,512));
     }
     return 1;
 }
