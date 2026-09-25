@@ -168,7 +168,10 @@ is saved before shifting only for R2. No history padding is read. Coefficients
 remain exactly indices0..3. Immediate scalar offsets replace residual address
 arithmetic;36-byte frame includes all spills and there are no runtime calls.
 The scalar host path and instance/reset contracts are unchanged. Host7/7 and
-target2261/lifecycle pass; fresh MPU/PMU remain pending.
+target2261/lifecycle,MPU6460 and expected read control pass. The write control
+was programmed, but DAP stayed unresponsive after more than3 minutes of spaced
+status retries and a connection timeout. Its result and PMU remain unverified;
+VS Code intervention requested, with no duplicate launch.
 
 | Path | Access bounds and emitted implementation |
 |---|---|
