@@ -826,37 +826,103 @@ KDA_NOINLINE void fir_tiny3(const kda_fir_instance_f32 *S,
     fir_tiny(S, pSrc, pDst, blockSize, 3U);
 }
 
-KDA_NOINLINE void fir_tiny4_short(const kda_fir_instance_f32 *S,
-    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
-{
-#if KDA_FIR_MVE
-    float32_t *history = S->state->history;
-    const float32_t *c = S->prepared;
-    uint32_t c0,c1,c2;
-    memcpy(&c0,history,4); memcpy(&c1,history+1,4); memcpy(&c2,history+2,4);
-    const mve_pred16_t active = vctp32q(blockSize);
-    if (blockSize == 2U) {
-        fir_tiny4_tail(history,pSrc,pDst,2U,active,c0,c1,c2,c[3],c[2],c[1],c[0]);
-    } else {
-        fir_tiny4_tail(history,pSrc,pDst,3U,active,c0,c1,c2,c[3],c[2],c[1],c[0]);
-    }
-#else
-    fir_tiny(S,pSrc,pDst,blockSize,4U);
-#endif
-}
-
 KDA_NOINLINE void fir_tiny4_long(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
 {
     fir_tiny(S, pSrc, pDst, blockSize, 4U);
 }
 
+#if KDA_FIR_MVE
+_Static_assert(offsetof(kda_fir_instance_f32, prepared) == 4 &&
+               offsetof(kda_fir_instance_f32, state) == 8 &&
+               offsetof(kda_fir_state_f32, history) == 0,
+               "Tiny FIR assembly requires the 32-bit instance layout");
+
+/* A bounded leaf path avoids saving four persistent coefficient registers.
+ * LR holds the coefficient pointer after its return address is saved. Only
+ * caller-clobbered q0/q1 and r12 are scratch; the frame remains 8-byte aligned.
+ * Every VPST block is consumed before another branch or the public return. */
+__attribute__((naked, noinline)) void fir_tiny4(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    __asm volatile(
+        "cmp r3, #8\n"
+        "bhs fir_tiny4_long\n"
+        "push {r4, r5, r6, lr}\n"
+        "ldr lr, [r0, #4]\n"
+        "ldr r0, [r0, #8]\n"
+        "ldr r0, [r0]\n"
+        "ldrd r4, r5, [r0]\n"
+        "ldr r6, [r0, #8]\n"
+        "cmp r3, #4\n"
+        "blo 1f\n"
+        "vldrw.u32 q0, [r1], #16\n"
+        "ldr r12, [lr, #12]\n"
+        "vmul.f32 q1, q0, r12\n"
+        "vshlc q0, r4, #32\n"
+        "ldr r12, [lr, #8]\n"
+        "vfma.f32 q1, q0, r12\n"
+        "vshlc q0, r5, #32\n"
+        "ldr r12, [lr, #4]\n"
+        "vfma.f32 q1, q0, r12\n"
+        "vshlc q0, r6, #32\n"
+        "ldr r12, [lr]\n"
+        "vfma.f32 q1, q0, r12\n"
+        "vstrw.32 q1, [r2], #16\n"
+        "subs r3, #4\n"
+        "bne 1f\n"
+        "strd r4, r5, [r0]\n"
+        "str r6, [r0, #8]\n"
+        "pop {r4, r5, r6, pc}\n"
+        "1:\n"
+        "vctp.32 r3\n"
+        "vpst\n"
+        "vldrwt.u32 q0, [r1]\n"
+        /* Retain valid inputs before VSHLC consumes the old carry registers. */
+        "cmp r3, #2\n"
+        "beq 2f\n"
+        "bhi 3f\n"
+        "ldr r12, [r1]\n"
+        "str r12, [r0]\n"
+        "strd r4, r5, [r0, #4]\n"
+        "b 4f\n"
+        "2:\n"
+        "ldr r12, [r1, #4]\n"
+        "str r12, [r0]\n"
+        "ldr r12, [r1]\n"
+        "str r12, [r0, #4]\n"
+        "str r4, [r0, #8]\n"
+        "b 4f\n"
+        "3:\n"
+        "ldr r12, [r1, #8]\n"
+        "str r12, [r0]\n"
+        "ldr r12, [r1, #4]\n"
+        "str r12, [r0, #4]\n"
+        "ldr r12, [r1]\n"
+        "str r12, [r0, #8]\n"
+        "4:\n"
+        "ldr r12, [lr, #12]\n"
+        "vmul.f32 q1, q0, r12\n"
+        "vshlc q0, r4, #32\n"
+        "ldr r12, [lr, #8]\n"
+        "vfma.f32 q1, q0, r12\n"
+        "vshlc q0, r5, #32\n"
+        "ldr r12, [lr, #4]\n"
+        "vfma.f32 q1, q0, r12\n"
+        "vshlc q0, r6, #32\n"
+        "ldr r12, [lr]\n"
+        "vfma.f32 q1, q0, r12\n"
+        "vpst\n"
+        "vstrwt.32 q1, [r2]\n"
+        "pop {r4, r5, r6, pc}\n");
+}
+#else
 KDA_NOINLINE void fir_tiny4(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
 {
-    if (blockSize == 2U || blockSize == 3U) { fir_tiny4_short(S,pSrc,pDst,blockSize); }
-    else { fir_tiny4_long(S,pSrc,pDst,blockSize); }
+    fir_tiny4_long(S,pSrc,pDst,blockSize);
 }
+#endif
 
 KDA_NOINLINE void fir_fixed5(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)

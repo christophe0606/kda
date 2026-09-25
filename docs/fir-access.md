@@ -2,7 +2,29 @@
 
 ## Current linear-window candidate
 
-Candidate `fir-tiny4-short-v1` uses exactly N public/prepared coefficients and N+127
+The current tiny4 leaf is audited in
+`runs/fir-r5/tiny4-leaf-lifecycle-numerical/changed-disassembly.txt`.
+Its B>=8 branch occurs before the prologue and preserves all four processing
+arguments. B1..7 saves/restores exactly r4-r6/LR (16-byte aligned frame), uses
+only caller-clobbered q0/q1/r12, and makes no internal calls. Saved LR is reused
+as the coefficient pointer. Instance+4/+8 and state+0 layout is statically
+asserted. Coefficient reads are exactly indices3,2,1,0; history reads/writes
+are exactly indices0..2. B4..7 first loads/stores one full vector at indices0..3;
+only then advances the pointers by4. B4 returns with the three resulting carries.
+Every other short case has residual R1..3. VCTP R and individually consumed VPST
+blocks restrict its source/output accesses to R lanes, with no VCTP0 path.
+R1/R2/R3 history retention uses only valid source indices and old carry registers;
+the memory stores precede arithmetic but never overwrite those registers.
+All source/coefficient/output/history buffers are disjoint by the public contract.
+No callee-saved vector register is touched, and no active VPT block crosses a
+branch or return. The existing long body remains fully audited (frame36).
+After expanding lifecycle tests, emitted owned instruction encodings are identical
+to the first leaf audit aside from relocation addresses. Target2261 and mixed
+block1..7/long transitions plus reinitialization pass; host7/7 passes. Fresh MPU
+and PMU qualification remain pending. Earlier tiny4 notes below are historical.
+
+
+Candidate `fir-tiny4-leaf-v1` uses exactly N public/prepared coefficients and N+127
 work-window floats. Instance/state ABI sizes are16/8 bytes; state.next is the
 history start in [0,128] for N>32, zero for N<=32. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.

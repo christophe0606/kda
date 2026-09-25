@@ -155,15 +155,16 @@ static int independent_variable_blocks(void)
 
 static int specialized_variable_blocks(void)
 {
-    static const uint32_t sizes[] = {1,31,8,64,3,32,17,7,33};
+    static const uint32_t sizes[] = {1,31,8,2,64,3,4,32,5,17,6,7,33};
+    static const uint16_t counts[] = {4,16,17,16,4};
     float coefficients[17], prepared[17], history[17U + KDA_FIR_CHUNK - 1U];
     float input[256], output[256];
     kda_fir_state_f32 state;
     kda_fir_instance_f32 instance;
     /* Rebuild the dispatch choice across a specialized/generic boundary,
      * change coefficients, and cross small/window/direct block paths. */
-    for (unsigned pass = 0; pass < 3; ++pass) {
-        const uint16_t count = pass == 1 ? 17 : 16;
+    for (unsigned pass = 0; pass < sizeof counts/sizeof counts[0]; ++pass) {
+        const uint16_t count = counts[pass];
         for (size_t k = 0; k < count; ++k) {
             coefficients[k] = (float)((int)((k*7U+pass*3U)%19U)-9)/32.0f;
         }
