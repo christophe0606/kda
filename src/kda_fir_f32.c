@@ -98,6 +98,19 @@ KDA_INLINE static void fir_tiny4_tail(float32_t *__restrict history,
     if (length == 3U) { history[2] = source[0]; }
     else { memcpy(history+2,&previous,4); }
 }
+KDA_INLINE static void fir_tiny4_last4(float32_t *__restrict history,
+    const float32_t *__restrict source, float32_t *__restrict output,
+    float32_t b0, float32_t b1, float32_t b2, float32_t b3)
+{
+    float32x4_t sum = vmulq_n_f32(vldrwq_f32(source-1),b0);
+    sum = vfmaq_n_f32(sum,vldrwq_f32(source-2),b1);
+    sum = vfmaq_n_f32(sum,vldrwq_f32(source-3),b2);
+    sum = vfmaq_n_f32(sum,vldrwq_f32(source-4),b3);
+    vstrwq_f32(output-1,sum);
+    history[0] = source[2];
+    history[1] = source[1];
+    history[2] = source[0];
+}
 #endif
 
 KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
@@ -130,7 +143,8 @@ KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
         vstrwq_f32(pDst,sum);
         pSrc += 4; pDst += 4; blockSize -= 4;
     }
-    if (blockSize == 0U) {
+    /* Favor the complete-vector exit in the four-tap tail dispatcher. */
+    if (count == 4U ? __builtin_expect(blockSize == 0U,1) : blockSize == 0U) {
         memcpy(history,&c0,4);
         if (count >= 3U) { memcpy(history+1,&c1,4); }
         if (count == 4U) { memcpy(history+2,&c2,4); }
@@ -145,14 +159,7 @@ KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
              * sample remainder here follows at least one complete vector.
              * Recompute its final output with the three remaining outputs:
              * all four windows are inside the current public input block. */
-            float32x4_t sum = vmulq_n_f32(vldrwq_f32(pSrc-1),b0);
-            sum = vfmaq_n_f32(sum,vldrwq_f32(pSrc-2),b1);
-            sum = vfmaq_n_f32(sum,vldrwq_f32(pSrc-3),b2);
-            sum = vfmaq_n_f32(sum,vldrwq_f32(pSrc-4),b3);
-            vstrwq_f32(pDst-1,sum);
-            history[0] = pSrc[2];
-            history[1] = pSrc[1];
-            history[2] = pSrc[0];
+            fir_tiny4_last4(history,pSrc,pDst,b0,b1,b2,b3);
         }
         return;
     }

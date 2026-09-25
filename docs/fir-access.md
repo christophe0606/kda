@@ -2,13 +2,22 @@
 
 ## Current linear-window candidate
 
-The experimental successor `fir-tiny4-overlap-v1` replaces the long tiny4
+The next experimental candidate `fir-tiny4-overlap-branch-v1` keeps the same
+overlap-tail bounds below, favors the complete-vector exit with a branch hint,
+and marks the tail helper buffers restrict under the existing disjoint contract.
+Fresh target evidence is pending. Its parent overlap-v1/e77e88f passes complete
+safety and a qualified323 capture, but has5 parity losses: B7 improves only
+76.058->75.058 and B1/B4/B5/B8 become failures. It is rejected; evidence retained
+under `runs/fir-r8/overlap-*`. Best measured selection remains54b795f below.
+
+
+The rejected experiment `fir-tiny4-overlap-v1` replaces the long tiny4
 three-sample tail with four overlapping contiguous loads. Its public dispatcher
 routes B2/B3 to the existing short helper, so this remainder implies B>=7.
 Source accesses are [B-7,B), destination [B-4,B), recomputing one output.
 The same b0,b1,b2,b3 accumulation order and final three valid retained inputs
-are used. No new storage or caller restriction. Fresh target audit/safety and
-timing remain pending; measured baseline evidence below stays separate.
+are used. No new storage or caller restriction. Full target safety passes, but measured parity regresses as recorded above;
+measured baseline evidence below stays separate.
 
 
 The current best measured candidate is `fir-direct16-64-v1`, source commit
