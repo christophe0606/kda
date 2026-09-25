@@ -2,13 +2,18 @@
 
 ## Current linear-window candidate
 
-The current experiment `fir-tiny4-gpr-tails-v1` splits the residual paths of
-measured6456a49. Its GPR coefficient prologue,32-byte frame,stacklessB1 and
-full-vector loop stay unchanged. R1 computes one scalar output and retains
-src0/oldh0/oldh1. R2 predicates both memory operations and retains
-src1/src0/oldh0. R3 implies B>=7; four contiguous windows read src[B-7,B),
-recompute/write dst[B-4,B),and retain src[B-1],src[B-2],src[B-3]. No public
-contract or allocation change. Host7/7 passes;fresh target qualification pending.
+The current experiment `fir-tiny4-gpr-window-v1` replaces only R1 of7e43f87.
+B>=5 and cursor=B-1; contiguous q1 reads src[B-4,B),q2 reads exact c[0,4).
+Scalar lanes compute b1*x[B-2]+b2*x[B-3]+b3*x[B-4]+b0*x[B-1]. Store only
+dst[B-1] and retain [src[B-1],oldh0,oldh1]. Only caller-saved q0..q2 are used;
+the32-byte frame and all other paths stay unchanged. Host7/7;target gates pending.
+
+Parent7e43f87 `fir-tiny4-gpr-tails-v1` passes full numerical/safety/image gates
+and qualified323 timing with47 readback blocks and28 scaling points. R3 fixes
+B7N4=70.050781/71.051758,but R1 creates the sole loss B5=75.050781/71.051758.
+It remains rejected for acceptance;best54b795f stays distinct. Full evidence in
+runs/fir-r9/gpr-tails-*. Guard interruption and user-assisted recovery retained.
+R3 reads src[B-7,B),writes dst[B-4,B),retains final3 samples,B>=7 guaranteed.
 
 Parent `fir-tiny4-gpr-v1`,6456a49, passed host7/7,target2261/lifecycle,MPU6460,
 both controls,full owned audit and readback38/34/12/11. Besides tiny4_long,the
