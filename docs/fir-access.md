@@ -2,19 +2,33 @@
 
 ## Current linear-window candidate
 
-The current experimental successor is `fir-direct16-64-v1`. Its N16 B>16 and
-N64 B>128 paths copy N inputs after the N-1 history boundary, compute complete
-16-output boundary tiles, then use current input directly for the suffix.
-N64 compacts its lazy history first when next!=0, and both paths finish with
-the last N-1 inputs at history0 and next=0. N16 small calls and N64 B<=128 use
-the existing helpers. Storage remains exactly N coefficients and N+127 history.
-For a final13..15 outputs, a complete overlapping tile is allowed only when
-B>=N+15: source starts B-N-15>=0 and ends B-1; outputs end B-1. Other remainders
-use existing bounded tails. These are source bounds only; emitted audit and
-fresh target safety/timing remain pending. Qualified parent evidence follows.
+The current best measured candidate is `fir-direct16-64-v1`, source commit
+54b795f. N16 B>16 and N64 B>128 copy N inputs after N-1 history samples,
+compute the boundary outputs, and then read the suffix directly from input.
+N64 compacts lazy history on entry; both retain the last N-1 inputs at history0
+and publish next=0. Smaller calls delegate to the existing helpers. Public
+coefficient order, API, disjoint buffers and exact N/N+127 storage are unchanged.
+The final overlapping tile is bounded by B>=N+15 and src[B-N-15,B),
+dst[B-16,B); other tails retain bounded predication or scalar reductions.
 
+The full26-function owned audit changes only direct16,direct64 and initializer;
+frames112/72 and exact source/history/coefficient bounds are documented in
+`runs/fir-r7/direct-numerical/access-audit.md`. Processing/reset sequences match
+across numerical,guard and benchmark images modulo relocation. Fresh host7/7,
+target2261/expanded lifecycle,MPU6460 and both fault controls pass. Per-mode
+opaque readback38/34/12/11 blocks matches the committed images with actual dual
+Release load logs. Evidence: `runs/fir-r7/direct-{numerical,guard,read-fault,write-fault}`.
 
-The current best measured candidate is `fir-tiny4-noalias-v1`, source commit
+The qualified323 capture has47 image/timed-code blocks and28 scaling points,
+with zero errors,instability or unresolved overhead. Losses fall5->1 without a
+new miss. N16 B31/63/127 now measures451.125/806.227/1514.227 versus CMSIS
+476.133/828.242/1532.242; B512N64 measures21315.227 versus22257.242. The remaining
+B7N4 miss is76.058105 versus71.051758. Small N16/N64 delegations cost3 additional
+cycles and N16B17 costs15 more than the parent; each still passes CMSIS parity.
+This is a single protocol-qualified capture, not final all-parity acceptance.
+Evidence: `runs/fir-r7/direct-capture-1`. Qualified parent evidence follows.
+
+The qualified parent is `fir-tiny4-noalias-v1`, source commit
 0d4774b. Its tiny4 residual helper uses restrict for history/source/output,
 expressing the existing disjoint-buffer contract. Public order, allocation sizes
 and valid retained samples are unchanged. Current full owned assembly and bounds
