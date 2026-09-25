@@ -2,7 +2,18 @@
 
 ## Current linear-window candidate
 
-Current vector-coefficient successor audit:
+The restored candidate uses the exact `fir-tiny4-short-v1` kernel source from
+7fc04aa, retaining the expanded lifecycle tests. Its complete tiny4/short/long
+instruction encodings match the original audit (frames0/24/36), as checked in
+`runs/fir-r5/restored-short-numerical/changed-disassembly.txt` and
+`runs/fir-r5/restored-source-identity.json`. The source/access proof for that
+candidate applies unchanged. Host7/7 and fresh target2261/expanded mixed-block
+and reinitialization lifecycle checks pass. Its new whole-image timing is not measured: the qualified six-loss
+capture belongs to d667480 and remains explicitly separate. The following leaf
+and vector-coefficient descriptions document rejected experiments.
+
+
+Historical rejected vector-coefficient successor audit:
 `runs/fir-r5/tiny4-vector-coeff-numerical/changed-disassembly.txt` covers the
 entire tiny4 entry and long helper. B1 and B>=8 branch to long before any saves.
 B2..7 retains the leaf16-byte frame and identical source/output/history bounds.
@@ -44,7 +55,7 @@ Full43 opaque readback blocks and28 scaling points are retained under
 `runs/fir-r5/tiny4-leaf-*`. Earlier tiny4 notes below are historical.
 
 
-Candidate `fir-tiny4-vector-coeff-v1` uses exactly N public/prepared coefficients and N+127
+Candidate `fir-tiny4-restored-v1` uses exactly N public/prepared coefficients and N+127
 work-window floats. Instance/state ABI sizes are16/8 bytes; state.next is the
 history start in [0,128] for N>32, zero for N<=32. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.
