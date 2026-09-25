@@ -2,7 +2,13 @@
 
 ## Current linear-window candidate
 
-The current experiment `fir-tiny4-gpr-window-v1` replaces only R1 of7e43f87.
+Selected final firmware remains97194ca. Following the user's explicit two-cycle
+allowance,both independent captures meet the revised limit in all323 cases;
+the strict B5 overrun below remains reported. See [results](fir-results.md) and
+[acceptance amendment](fir-acceptance.md). Historical strict rejection statements
+below describe the policy in force when those experiments were measured.
+
+Selected `fir-tiny4-gpr-window-v1` at97194ca replaces only R1 of7e43f87.
 B>=5 and cursor=B-1; contiguous q1 reads src[B-4,B),q2 reads exact c[0,4).
 Scalar lanes compute b1*x[B-2]+b2*x[B-3]+b3*x[B-4]+b0*x[B-1]. Store only
 dst[B-1] and retain [src[B-1],oldh0,oldh1]. Only caller-saved q0..q2 are used;
@@ -15,8 +21,10 @@ instructions match numerical. Full owned audit and evidence: runs/fir-r9/gpr-win
 Qualified323 timing retains47 image/code blocks,31 paired batches,zero errors,
 instability or unresolved overhead,and all28 scaling points. B7 stays fixed at
 70.050781/71.051758. B5 improves3 cycles to72.050781 but still exceeds71.051758.
-This sole miss rejects acceptance;no final pair/T9. Prior best54b795f remains
-distinct. OLS a=.6465250533371024,b=.7475101653002714,c=1.1338311112298893,
+This sole miss caused the original strict rejection. The final independent pair
+and T9 review now pass under the explicit user-approved two-cycle allowance;
+strict measurements remain unchanged. Prior best54b795f remains distinct.
+OLS a=.6465250533371024,b=.7475101653002714,c=1.1338311112298893,
 d=141.5079037646858. No overhead subtraction or acceptance waiver.
 
 Parent7e43f87 `fir-tiny4-gpr-tails-v1` passes full numerical/safety/image gates

@@ -7,7 +7,10 @@ contract are described in [docs/fir.md](docs/fir.md). CTest includes its host
 streaming/oracle suite. The Helium implementation has a selectable target correctness
 mode. The current candidate passed MPU guards and deliberate read/write fault
 controls. Reproducible TCM profiles and the PMU harness are described in
-[docs/fir.md](docs/fir.md); full timing qualification and CMSIS parity remain pending.
+[docs/fir.md](docs/fir.md). Two independent TCM captures meet the user's absolute
+two-cycle allowance in all323 cases;322 cases meet strict CMSIS parity.
+[Results and remaining review status](docs/fir-results.md) retain the one-cycle
+B5/N4 difference and full scaling evidence.
 
 ## Alif E8 demo
 

@@ -3,9 +3,12 @@
 The current candidate uses independently derived **sixteen-output Helium tiles**
 over a linear sample window, with shift-carry tiny-tap paths. It replaces the mirrored
 ring after qualified measurements identified per-output history/reduction costs.
-Its correctness, safety and performance must be requalified after this change.
-The host greeting and
-statistical board demo remain selectable; Release currently selects FIR correctness.
+Measured source97194ca has complete correctness/safety qualification and two
+independent TCM captures meeting the user's absolute two-cycle allowance.
+See [results](fir-results.md) and the explicit [acceptance amendment](fir-acceptance.md).
+Strict comparisons and earlier rejected evidence remain reported. The host
+greeting and statistical board demo remain selectable;the current local generated
+profile is the completed FIR benchmark.
 
 ## Public contract
 
@@ -295,7 +298,7 @@ no provenance-check errors and no cases exceeding 1% batch MAD. Both remain
 **unqualified**: empty-call-loop overhead exceeds 1% in 237 cases. The raw inclusive
 comparison shows the candidate slower in 282 cases in each capture. These are
 diagnostics for further harness work and optimization, not accepted parity or
-asymptotic results. Accepted cycle fields in `benchmark.csv` remain blank.
+asymptotic results. Their accepted cycle fields in `benchmark.csv` remain blank.
 
 The user subsequently authorized measurement-overhead subtraction where needed
 for small-cycle accuracy. Raw inclusive values remain primary when the added
