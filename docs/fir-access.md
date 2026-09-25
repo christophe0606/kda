@@ -12,7 +12,10 @@ s12/s13/s14 lanes as appropriate for R1/R2/R3. No source reread or speculative
 inactive-lane history write occurs. Only caller-clobbered q0-q3 are modified;
 r4-r6 and LR restore exactly. Register transfers precede VSHLC where possible,
 without changing operation ordering, predicates or public coefficient order.
-Full owned audit and host7/7,target2261/expanded lifecycle pass. MPU/PMU pending.
+Full owned audit,host7/7,target2261/expanded lifecycle,MPU6460 and both controls
+pass. Capture1 qualifies323,43 readback blocks and28 scaling, but8 parity losses
+remain (N4 B1/2/3/4/5/7=53/68/69/53/84/87). Rejected against the six-loss short
+candidate; retained under `runs/fir-r5/tiny4-vector-coeff-*`.
 The following leaf and tiny4 descriptions retain historical candidate evidence.
 
 
