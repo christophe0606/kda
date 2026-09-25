@@ -395,13 +395,64 @@ static inline void fir_tail16(const float32_t *samples,
         : [output] "r" (output), [taps] "r" (taps - 2U), [tail] "r" (length - 12U)
         : "q0", "q1", "q2", "q3", "q4", "r12", "lr", "cc", "memory");
 }
+
+/* Only initialized work storage may supply the inactive input lanes. */
+static inline void fir_tail16_window(const float32_t *samples,
+    const float32_t *coefficients, float32_t *output, uint32_t taps, uint32_t length)
+{
+    uint32_t saved_predicate;
+    __asm volatile(
+        "vmrs %[saved], p0\n"
+        "vctp.32 %[tail]\n"
+        "ldr r12, [%[coefficients]], #4\n"
+        "vldrw.u32 q4, [%[samples]], #4\n"
+        "vmul.f32 q0, q4, r12\n"
+        "vldrw.u32 q4, [%[samples], #12]\n"
+        "vmul.f32 q1, q4, r12\n"
+        "vldrw.u32 q4, [%[samples], #28]\n"
+        "vmul.f32 q2, q4, r12\n"
+        "vldrw.u32 q4, [%[samples], #44]\n"
+        "vmul.f32 q3, q4, r12\n"
+        "dls lr, %[taps]\n"
+        ".p2align 2\n"
+        "1:\n"
+        "ldr r12, [%[coefficients]], #4\n"
+        "vldrw.u32 q4, [%[samples]], #4\n"
+        "vfma.f32 q0, q4, r12\n"
+        "vldrw.u32 q4, [%[samples], #12]\n"
+        "vfma.f32 q1, q4, r12\n"
+        "vldrw.u32 q4, [%[samples], #28]\n"
+        "vfma.f32 q2, q4, r12\n"
+        "vldrw.u32 q4, [%[samples], #44]\n"
+        "vfma.f32 q3, q4, r12\n"
+        "le lr, 1b\n"
+        "ldr r12, [%[coefficients]], #4\n"
+        "vldrw.u32 q4, [%[samples]], #4\n"
+        "vfma.f32 q0, q4, r12\n"
+        "vstrw.32 q0, [%[output]]\n"
+        "vldrw.u32 q4, [%[samples], #12]\n"
+        "vfma.f32 q1, q4, r12\n"
+        "vstrw.32 q1, [%[output], #16]\n"
+        "vldrw.u32 q4, [%[samples], #28]\n"
+        "vfma.f32 q2, q4, r12\n"
+        "vstrw.32 q2, [%[output], #32]\n"
+        "vldrw.u32 q4, [%[samples], #44]\n"
+        "vfma.f32 q3, q4, r12\n"
+        "vpst\n"
+        "vstrwt.32 q3, [%[output], #48]\n"
+        "vmsr p0, %[saved]\n"
+        : [saved] "=&r" (saved_predicate), [samples] "+&r" (samples), [coefficients] "+&r" (coefficients)
+        : [output] "r" (output), [taps] "r" (taps - 2U), [tail] "r" (length - 12U)
+        : "q0", "q1", "q2", "q3", "q4", "r12", "lr", "cc", "memory");
+}
 #endif
 
 
 KDA_INLINE static void fir_small_core(const kda_fir_instance_f32 *S,
     const float32_t *__restrict pSrc, float32_t *__restrict pDst,
-    uint32_t blockSize, uint32_t count)
+    uint32_t blockSize, uint32_t count, int rounded_history)
 {
+    (void)rounded_history;
 #if defined(__clang__)
     __builtin_assume(count > 4U && count <= 32U && blockSize <= 8U);
 #endif
@@ -428,7 +479,12 @@ KDA_INLINE static void fir_small_core(const kda_fir_instance_f32 *S,
     /* The rounded vector retention also writes up to three scratch words.
      * Both spans stay in the initialized work allocation, even when B<H. */
     for (uint32_t k = 0; k < prefix; k += 4U) {
-        vstrwq_f32(history+k,vldrwq_f32(history+blockSize+k));
+        if (rounded_history) {
+            vstrwq_f32(history+k,vldrwq_f32(history+blockSize+k));
+        } else {
+            const mve_pred16_t active = vctp32q(prefix-k);
+            vstrwq_p_f32(history+k,vldrwq_z_f32(history+blockSize+k,active),active);
+        }
     }
 #else
     for (uint32_t i = 0; i < blockSize; ++i) { history[prefix+i] = pSrc[i]; }
@@ -444,19 +500,19 @@ KDA_INLINE static void fir_small_core(const kda_fir_instance_f32 *S,
 KDA_NOINLINE void fir_small(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
 {
-    fir_small_core(S,pSrc,pDst,blockSize,S->num_taps);
+    fir_small_core(S,pSrc,pDst,blockSize,S->num_taps,0);
 }
 
 KDA_NOINLINE void fir_small7(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
 {
-    fir_small_core(S,pSrc,pDst,blockSize,7U);
+    fir_small_core(S,pSrc,pDst,blockSize,7U,1);
 }
 
 KDA_NOINLINE void fir_small8(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
 {
-    fir_small_core(S,pSrc,pDst,blockSize,8U);
+    fir_small_core(S,pSrc,pDst,blockSize,8U,1);
 }
 
 KDA_NOINLINE static void fir_window(const kda_fir_instance_f32 *S,
@@ -535,27 +591,8 @@ KDA_INLINE static void fir_fixed_outputs(const float32_t *__restrict samples,
     /* A valid float buffer has a representable byte span. Exposing that
      * public precondition also proves the four-sample loop cannot wrap. */
     __builtin_assume(length <= SIZE_MAX / sizeof(float32_t));
-    uint32_t first = 0;
-    if (count == 8U) {
 #pragma clang loop unroll(disable)
-        for (; first + 8U <= length; first += 8U) {
-            fir_tile8(samples+first,coefficients,output+first,8U);
-        }
-        if (length-first > 4U) {
-            const mve_pred16_t active = vctp32q(length-first-4U);
-            float32x4_t a = vmulq_n_f32(vldrwq_f32(samples+first),coefficients[0]);
-            float32x4_t b = vmulq_n_f32(vldrwq_z_f32(samples+first+4U,active),coefficients[0]);
-            for (uint32_t k = 1; k < 8U; ++k) {
-                a = vfmaq_n_f32(a,vldrwq_f32(samples+first+k),coefficients[k]);
-                b = vfmaq_n_f32(b,vldrwq_z_f32(samples+first+4U+k,active),coefficients[k]);
-            }
-            vstrwq_f32(output+first,a);
-            vstrwq_p_f32(output+first+4U,b,active);
-            first = length;
-        }
-    }
-#pragma clang loop unroll(disable)
-    for (uint32_t i = first; i < length; i += 4U) {
+    for (uint32_t i = 0; i < length; i += 4U) {
         const mve_pred16_t active = vctp32q(length-i);
         float32x4_t sum = vdupq_n_f32(0.0f);
 #pragma clang loop unroll(full)
@@ -575,8 +612,9 @@ KDA_INLINE static void fir_fixed_outputs(const float32_t *__restrict samples,
 
 KDA_INLINE static void fir_medium_outputs(const float32_t *__restrict samples,
     const float32_t *__restrict coefficients, float32_t *__restrict output,
-    uint32_t length, uint32_t count)
+    uint32_t length, uint32_t count, int internal_window)
 {
+    (void)internal_window;
     uint32_t i = 0;
 #if KDA_FIR_MVE
     __builtin_assume(length <= SIZE_MAX / sizeof(float32_t));
@@ -585,7 +623,16 @@ KDA_INLINE static void fir_medium_outputs(const float32_t *__restrict samples,
         fir_tile16(samples+i, coefficients, output+i, count);
     }
     if (length - i >= 13U) {
-        fir_tail16(samples+i, coefficients, output+i, count, length-i);
+        if (internal_window) {
+            fir_tail16_window(samples+i, coefficients, output+i, count, length-i);
+        } else if (i != 0U) {
+            /* Recompute preceding outputs, ending exactly at the public end.
+             * length>=16 here, so neither source nor destination goes before
+             * its supplied span. Accumulation order is identical. */
+            fir_tile16(samples+length-16U,coefficients,output+length-16U,count);
+        } else {
+            fir_tail16(samples+i, coefficients, output+i, count, length-i);
+        }
         i = length;
     }
     if (i + 8U <= length) {
@@ -624,6 +671,37 @@ KDA_INLINE static void fir_medium_outputs(const float32_t *__restrict samples,
 #endif
 }
 
+KDA_NOINLINE void fir_medium_window(const kda_fir_instance_f32 *S,
+    const float32_t *__restrict pSrc, float32_t *__restrict pDst,
+    uint32_t blockSize)
+{
+    const uint32_t count = S->num_taps;
+#if defined(__clang__)
+    __builtin_assume(count > 8U && count <= 32U && blockSize > 8U && blockSize <= 32U);
+#endif
+    const uint32_t prefix = count - 1U;
+    float32_t *const history = S->state->history;
+#if KDA_FIR_MVE
+#pragma clang loop unroll(disable)
+    for (uint32_t i = 0; i < blockSize; i += 4U) {
+        const mve_pred16_t active = vctp32q(blockSize-i);
+        vstrwq_p_f32(history+prefix+i,vldrwq_z_f32(pSrc+i,active),active);
+    }
+#else
+    for (uint32_t i = 0; i < blockSize; ++i) { history[prefix+i] = pSrc[i]; }
+#endif
+    fir_medium_outputs(history,S->prepared,pDst,blockSize,count,1);
+#if KDA_FIR_MVE
+#pragma clang loop unroll(disable)
+    for (uint32_t k = 0; k < prefix; k += 4U) {
+        const mve_pred16_t active = vctp32q(prefix-k);
+        vstrwq_p_f32(history+k,vldrwq_z_f32(history+blockSize+k,active),active);
+    }
+#else
+    for (uint32_t k = 0; k < prefix; ++k) { history[k] = history[blockSize+k]; }
+#endif
+}
+
 KDA_NOINLINE void fir_medium(const kda_fir_instance_f32 *S,
     const float32_t *__restrict pSrc, float32_t *__restrict pDst,
     uint32_t blockSize)
@@ -646,10 +724,10 @@ KDA_NOINLINE void fir_medium(const kda_fir_instance_f32 *S,
 #else
     for (uint32_t i = 0; i < edge; ++i) { history[prefix+i] = pSrc[i]; }
 #endif
-    fir_medium_outputs(history, coefficients, pDst, edge, count);
+    fir_medium_outputs(history, coefficients, pDst, edge, count, 1);
     if (blockSize > edge) {
         fir_medium_outputs(pSrc+edge-prefix, coefficients, pDst+edge,
-                           blockSize-edge, count);
+                           blockSize-edge, count, 0);
     }
     if (blockSize >= prefix) {
 #if KDA_FIR_MVE
@@ -750,6 +828,7 @@ KDA_NOINLINE void fir_dispatch_medium(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
 {
     if (blockSize <= 8U) { fir_small(S,pSrc,pDst,blockSize); }
+    else if (blockSize <= 32U) { fir_medium_window(S,pSrc,pDst,blockSize); }
     else { fir_medium(S,pSrc,pDst,blockSize); }
 }
 

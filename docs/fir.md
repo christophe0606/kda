@@ -112,14 +112,17 @@ vector for B<=4, or a full first vector and partial second vector at B=5..7.
 Input append is predicated. Ascending history retention copies round_up(N-1,4)
 words using full vectors inside initialized workspace; up to three extra words
 are scratch. Fixed N7/8 use constant-count short helpers. Public buffers do not
-require padding. Fixed N8 with B>8 uses eight-output tiles and a bounded masked
-second vector for five-to-seven-output remainders.
+require padding. Fixed N8 with B>8 retains the faster measured four-output path.
 
-For B>8, N=9..32 rounds the history boundary up to16 outputs (E<=32), with the existing
+For B9..32, N9..32 appends the whole block into initialized work, computes there,
+and retains exactly N-1 samples. Its13..15-output internal tail may compute unused
+lanes inside work slack while predicating the public output store. For B>32,
+N=9..32 rounds the history boundary up to16 outputs (E<=32), with the existing
 sixteen/eight-output tiles followed by predicated four-output tails. A final
 one-to-three-output remainder instead uses bounded tap-vector dot products.
-Its tap loop
-retains a runtime count to avoid spilling a large set of hoisted coefficients.
+Long direct suffixes with at least16 outputs and13..15 remaining use a final
+full tile ending exactly at the output end, recomputing up to three prior outputs.
+Its tap loop retains a runtime count to avoid spilling a large set of hoisted coefficients.
 Boundary append and final retention are bounded tail-predicated copies; short
 blocks retain history with an ascending overlap-safe copy. The full N+127
 allocation remains sufficient since the largest boundary index is N+30.

@@ -2,7 +2,7 @@
 
 ## Current linear-window candidate
 
-Candidate `fir-fixed-tail-loops-v1` uses exactly N public/prepared coefficients and N+127
+Candidate `fir-medium-window-v1` uses exactly N public/prepared coefficients and N+127
 work-window floats. Instance/state ABI sizes are16/8 bytes; state.next is the
 history start in [0,128] for N>32, zero for N<=32. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.
@@ -34,8 +34,8 @@ changing block sizes. The fixed5..8 helpers tail-branch to small for B<=8; their
 remaining B>8 path can load the complete boundary without overread. All possible
 owned helper sections are explicit residency roots; cross-reference closure
 alone would miss the initialized indirect branch. Readback includes these roots.
-Frames are init32 plus clear-helper usage, scale8, fixed5/6/7/8=28/36/44/52;
-tiny2/3/4=16/28/36, small28, small7/8=20/20, short36, medium80 and window104.
+Frames are init32 plus clear-helper usage, scale8, fixed5/6/7/8=28/36/44/44;
+tiny2/3/4=16/28/36, small28, small7/8=20/20, short36, medium88, medium_window56 and window104.
 Tiny2/3/4 and small are audited again in
 `runs/fir-r4/window-tail-numerical/changed-disassembly.txt`. Tiny3/4 now use
 predicated source/output vectors for two/three remainders, but retain history
@@ -44,7 +44,7 @@ With zero remainder they store the GPR carries directly. Tiny2 still compiles
 to scalar tails. Small-window arithmetic loads are unpredicated only inside
 the already initialized N+127 work allocation; no caller buffer is padded.
 
-The complete changed fixed7/fixed8/medium/small/small7/small8 assembly is audited
+The previous fixed-tail-loops changed fixed7/fixed8/medium/small/small7/small8 assembly was audited
 in `runs/fir-r4/fixed-tail-loops-numerical/changed-disassembly.txt`. Fixed7/8
 tail-branch to constant-count small7/8 for B<=8. Small retention now copies
 R=round_up(H,4) words from work[B..B+R) to work[0..R), using full vector
@@ -54,7 +54,7 @@ words are scratch and never change the H retained samples. The generic helper
 emits a full-width VSTRB after VLDRW; it still copies exactly sixteen bytes per
 iteration. Fixed small7/8 emit two full vector copies.
 
-Fixed8 now uses eight-output tiles for the complete boundary and suffix tiles.
+The previous fixed8 experiment used eight-output tiles for the complete boundary and suffix tiles.
 For suffix remainder R=5..7, every first-vector load/store is full and every
 second-vector load/store is predicated by R-4. Maximum active relative sample
 index is (N-1)+(R-1), including the hoisted final-tap second-vector load.
@@ -73,7 +73,35 @@ qualification was subsequently completed in `fixed-tail-loops-guard` (6460
 cases, zero failures), `fixed-tail-loops-read-fault` and
 `fixed-tail-loops-write-fault` (both expected boundary faults). Numerical2261
 and host7/7 pass. The first benchmark launch lost its debugger connection before
-completion could be observed; no timing qualification is claimed for it.
+completion could initially be observed. The original session later responded at its completion breakpoint, without any timed halt/restart. Its full323-case capture qualified after all opaque image/readback checks, but had35 parity failures; the longN8 change regressed.
+
+
+Current medium-window changes are audited in
+`runs/fir-r4/medium-window-numerical/changed-disassembly.txt`, covering the whole
+fixed8, small, medium, medium_window and medium dispatcher. Fixed8 long calls
+restore the four-output path; generic small restores exact-H predicated history
+retention, while constant small7/8 keep their bounded rounded copies.
+
+For N9..32 and B9..32, medium_window appends exactly B inputs after H=N-1 history
+words, computes all outputs there, and copies exactly history[B..B+H) to
+history[0..H) with ascending DLSTP/LETP loads before stores. No lazy offset is
+introduced. Full tiles and dot/four-output tails retain their existing bounds.
+Internal13..15-output tails may read the unused lanes of the fourth vector:
+maximum index i+N+14, with i<=16, is at most N+30, inside initialized N+127.
+Only their last output store is predicated by R-12. Invalid output lanes do not
+feed valid lanes or history; exactly N coefficients are loaded. P0 is preserved
+around assembly, with all VPT blocks consumed locally. This variant is used
+only for initialized work, never a public source span.
+
+For long medium direct suffixes with length L>=16 and remainder13..15, the final
+full tile starts at L-16. Its reads span samples[L-16..L+N-1), with last index
+L+N-2, and stores cover output[L-16..L). The first index is nonnegative; the
+overlap only recomputes previously produced outputs using identical tap order.
+Input/output are disjoint. If L<16, the original predicated tail is retained.
+Source base pSrc+E-H and L=B-E therefore still end exactly at pSrc[B-1].
+No processing runtime calls occur; stack spills are bounded by the frames above.
+Host7/7 and target2261/lifecycle pass; fresh MPU and timing qualification are
+pending. Post-audit unused-parameter casts affect no target instructions.
 
 | Path | Access bounds and emitted implementation |
 |---|---|
@@ -83,9 +111,9 @@ completion could be observed; no timing qualification is claimed for it.
 | N=1 | Reads/writes only B source/destination elements; scalar low-overhead loop or `dlstp.32` scale with B-count tail. No history access. |
 | N=2..4 | Reads/writes only window[0..N-1), reads exactly N coefficients. Full four-sample vectors use shift-with-carry to insert streaming history. Tiny2 uses scalar tails; tiny3/4 use one scalar remainder or a VCTP(R)-predicated load/store for R=2/3. Retention reads source[R-1], source[R-2], and for N=4 either source[0] when R=3 or the preceding block/vector newest carry when R=2. No invalid lane is published as history. |
 | N>32, B<8 | Uses lazy offset/compaction. Appends B inputs with DLSTP/LETP. Paired outputs share a coefficient vector; the tap loop uses DLSTP/LETP with count N to predicate all three loads and both FMAs. Active k+j<N bounds coefficient reads and sample index i+k+j<=B+N-2. An odd output has one predicated dot product. Scalar reductions store exactly B outputs, then next advances by B. All accesses obey the existing N+127 allocation. |
-| N=5..32, B<=8 | Fixed-history helper appends exactly B input words with DLSTP/LETP. B<=4 computes one full output vector from initialized work words through index N+2, then predicates the output store. B=5..8 computes two full vectors, reading through N+6; for B=5..7 only the second output store is predicated. Both maxima are <=N+126, inside the N+127 work allocation fully cleared by init/reset. Inactive output lanes do not feed valid lanes or history. Exactly N coefficients are read, with no coefficient padding. Ascending full-vector retention copies history[B..B+R) to history[0..R), R=round_up(H,4), loading each vector before its store; extra destination words are scratch. P0 is explicitly saved/restored around the masked8-window asm, with no live VPT block crossing its boundary. This helper must never receive a direct caller-source window. |
-| N=5..8 boundary preparation, B>8 | H=N-1, E=round_up(H,4)<=8. Complete vector copies read source[0..E) and write window[H..H+E). Coefficients[0..N) are loaded exactly. Boundary outputs read window[i+k+j] with i+j<E and k<N; maximum H+E-1<=14, within N+127. N=5 emits one full vector; N=6..7 emit two VCTP/VPST vectors in a two-iteration LE loop; N=8 uses one full eight-output tile. |
-| N=5..8 direct suffix | Exists only when B>E, so E>=H. Base is source+E-H, length B-E. N=5..7 use DLSTP/LETP to predicate shifted loads and stores. N=8 uses full eight-output tiles and the bounded remainder schedules audited above. Last active source index E-H+(B-E-1)+(N-1)=B-1; first index E-H>=0. Stores cover destination[E..B). The compiler assumption length<=SIZE_MAX/4 follows the public valid-float-object contract and prevents i+=4 from wrapping on the 32-bit target. |
+| N=5..32, B<=8 | Fixed-history helper appends exactly B input words with DLSTP/LETP. B<=4 computes one full output vector from initialized work words through index N+2, then predicates the output store. B=5..8 computes two full vectors, reading through N+6; for B=5..7 only the second output store is predicated. Both maxima are <=N+126, inside the N+127 work allocation fully cleared by init/reset. Inactive output lanes do not feed valid lanes or history. Exactly N coefficients are read, with no coefficient padding. Generic small retention copies exactly H words under DLSTP/LETP. Constant small7/8 retain the rounded full-vector copy described above, loading each vector before its store; extra destination words are scratch. P0 is explicitly saved/restored around the masked8-window asm, with no live VPT block crossing its boundary. This helper must never receive a direct caller-source window. |
+| N=5..8 boundary preparation, B>8 | H=N-1, E=round_up(H,4)<=8. Complete vector copies read source[0..E) and write window[H..H+E). Coefficients[0..N) are loaded exactly. Boundary outputs read window[i+k+j] with i+j<E and k<N; maximum H+E-1<=14, within N+127. N=5 emits one full vector; N=6..8 emit two VCTP/VPST vectors in a two-iteration LE loop. |
+| N=5..8 direct suffix | Exists only when B>E, so E>=H. Base is source+E-H, length B-E. N=5..8 use DLSTP/LETP to predicate shifted loads and stores. Last active source index E-H+(B-E-1)+(N-1)=B-1; first index E-H>=0. Stores cover destination[E..B). The compiler assumption length<=SIZE_MAX/4 follows the public valid-float-object contract and prevents i+=4 from wrapping on the 32-bit target. |
 | N=5..8 retention | For B>=H, scalar/LDM loads read source[B-H..B) and store window[0..H). For B<H, ascending scalar load/store pairs copy window[B..B+H) to window[0..H); B=E, so all reads are initialized history or freshly appended input. Source is ahead of destination, preserving overlap. next remains zero. |
 | N=9..32, B>8 | Same direct-input proof, now E=min(B,round_up(H,16))<=32 and maximum boundary index H+E-1<=N+30. Boundary/suffix full tiles use the eight/sixteen-output bounds below; four-output tails predicate every sample load/store; final1..3-output tails use predicated tap-vector dot products as audited above. Coefficients are loaded only for k<N. Append and retention use DLSTP/LETP counts E and H; the forward overlapping retention loads each vector before storing it, so no later source element is overwritten. next remains zero. |
 | Lazy compaction | Let s=next. If s+L>128, ascending copy reads window[s..s+H) and writes window[0..H), then sets s=0. Old s<=128, so maximum read is N+126. Source is ahead; every vector loads before its store. Predicated copy count H. |
