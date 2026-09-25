@@ -76,6 +76,30 @@ KDA_NOINLINE static void fir_scale(const kda_fir_instance_f32 *S,
     for (uint32_t i = 0; i < blockSize; ++i) { pDst[i] = b0 * pSrc[i]; }
 }
 
+#if KDA_FIR_MVE
+KDA_INLINE static void fir_tiny4_tail(float32_t *history,
+    const float32_t *source, float32_t *output, uint32_t length,
+    uint32_t c0, uint32_t c1, uint32_t c2,
+    float32_t b0, float32_t b1, float32_t b2, float32_t b3)
+{
+    const uint32_t previous = c0;
+    const mve_pred16_t active = vctp32q(length);
+    const float32x4_t current = vldrwq_z_f32(source,active);
+    float32x4_t sum = vmulq_n_f32(current,b0);
+    uint32x4_t delayed = vshlcq_u32(vreinterpretq_u32_f32(current),&c0,32);
+    sum = vfmaq_n_f32(sum,vreinterpretq_f32_u32(delayed),b1);
+    delayed = vshlcq_u32(delayed,&c1,32);
+    sum = vfmaq_n_f32(sum,vreinterpretq_f32_u32(delayed),b2);
+    delayed = vshlcq_u32(delayed,&c2,32);
+    sum = vfmaq_n_f32(sum,vreinterpretq_f32_u32(delayed),b3);
+    vstrwq_p_f32(output,sum,active);
+    history[0] = source[length-1U];
+    history[1] = source[length-2U];
+    if (length == 3U) { history[2] = source[0]; }
+    else { memcpy(history+2,&previous,4); }
+}
+#endif
+
 KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize, size_t count)
 {
@@ -110,6 +134,14 @@ KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
         memcpy(history,&c0,4);
         if (count >= 3U) { memcpy(history+1,&c1,4); }
         if (count == 4U) { memcpy(history+2,&c2,4); }
+        return;
+    }
+    if (count == 4U && blockSize >= 2U) {
+        if (blockSize == 2U) {
+            fir_tiny4_tail(history,pSrc,pDst,2U,c0,c1,c2,b0,b1,b2,b3);
+        } else {
+            fir_tiny4_tail(history,pSrc,pDst,3U,c0,c1,c2,b0,b1,b2,b3);
+        }
         return;
     }
     if (count >= 3U && blockSize >= 2U) {

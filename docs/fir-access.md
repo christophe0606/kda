@@ -2,7 +2,7 @@
 
 ## Current linear-window candidate
 
-Candidate `fir-medium-bounds-v1` uses exactly N public/prepared coefficients and N+127
+Candidate `fir-tiny4-split-v1` uses exactly N public/prepared coefficients and N+127
 work-window floats. Instance/state ABI sizes are16/8 bytes; state.next is the
 history start in [0,128] for N>32, zero for N<=32. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.
@@ -153,7 +153,22 @@ final work sample L+N-2. Recomputed outputs use identical accumulation order.
 For internal L13..15 without a prior tile, the initialized padded-work tail
 remains; short direct tails retain predicates. Coefficient reads remain exactly N.
 Host7/7 and target2261 plus16->17->16 reinitialization with changing coefficients,
-mixed block paths, reset and one long block pass. Fresh MPU/PMU are pending.
+mixed block paths, reset and one long block pass. MPU6460 and both expected
+controls pass. Committed2c00199 capture1 qualifies323 with7 parity failures,
+all42 opaque readback ranges and all28 scaling points (a=0.650938183557).
+The post-run pause found main WFI and a complete record; no timed halt occurred.
+
+The tiny4-split successor is audited completely in
+`runs/fir-r4/tiny4-split-numerical/changed-disassembly.txt`. Full-vector and R0/R1
+paths retain their bounds. R2 and R3 are inline constant-length tails: predicate
+masks0xff/0xfff activate exactly2/3 float lanes for source load/output store.
+All shifts/FMA operate on registers. R2 retains source[1],source[0],old c0;
+R3 retains source[2],source[1],source[0], writing only history[0..3). The old c0
+is saved before shifting only for R2. No history padding is read. Coefficients
+remain exactly indices0..3. Immediate scalar offsets replace residual address
+arithmetic;36-byte frame includes all spills and there are no runtime calls.
+The scalar host path and instance/reset contracts are unchanged. Host7/7 and
+target2261/lifecycle pass; fresh MPU/PMU remain pending.
 
 | Path | Access bounds and emitted implementation |
 |---|---|
