@@ -141,7 +141,18 @@ KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
         if (blockSize == 2U) {
             fir_tiny4_tail(history,pSrc,pDst,2U,active,c0,c1,c2,b0,b1,b2,b3);
         } else {
-            fir_tiny4_tail(history,pSrc,pDst,3U,active,c0,c1,c2,b0,b1,b2,b3);
+            /* The four-tap dispatcher handles B2/B3 separately. A three-
+             * sample remainder here follows at least one complete vector.
+             * Recompute its final output with the three remaining outputs:
+             * all four windows are inside the current public input block. */
+            float32x4_t sum = vmulq_n_f32(vldrwq_f32(pSrc-1),b0);
+            sum = vfmaq_n_f32(sum,vldrwq_f32(pSrc-2),b1);
+            sum = vfmaq_n_f32(sum,vldrwq_f32(pSrc-3),b2);
+            sum = vfmaq_n_f32(sum,vldrwq_f32(pSrc-4),b3);
+            vstrwq_f32(pDst-1,sum);
+            history[0] = pSrc[2];
+            history[1] = pSrc[1];
+            history[2] = pSrc[0];
         }
         return;
     }

@@ -2,6 +2,15 @@
 
 ## Current linear-window candidate
 
+The experimental successor `fir-tiny4-overlap-v1` replaces the long tiny4
+three-sample tail with four overlapping contiguous loads. Its public dispatcher
+routes B2/B3 to the existing short helper, so this remainder implies B>=7.
+Source accesses are [B-7,B), destination [B-4,B), recomputing one output.
+The same b0,b1,b2,b3 accumulation order and final three valid retained inputs
+are used. No new storage or caller restriction. Fresh target audit/safety and
+timing remain pending; measured baseline evidence below stays separate.
+
+
 The current best measured candidate is `fir-direct16-64-v1`, source commit
 54b795f. N16 B>16 and N64 B>128 copy N inputs after N-1 history samples,
 compute the boundary outputs, and then read the suffix directly from input.
