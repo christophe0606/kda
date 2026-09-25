@@ -266,10 +266,9 @@ static inline void fir_tail8_window(const float32_t *samples,
     /* Only for the initialized work allocation, with at least taps+7 floats.
      * Extra output lanes may read its slack; the final store stays predicated.
      * Never use this helper directly on an exactly sized caller input. */
-    uint32_t saved_predicate;
+    register float32x4_t sum0 __asm("q0");
+    register float32x4_t sum1 __asm("q1");
     __asm volatile(
-        "vmrs %[saved], p0\n"
-        "vctp.32 %[tail]\n"
         "ldr r12, [%[coefficients]], #4\n"
         "vldrw.u32 q2, [%[samples]], #4\n"
         "vmul.f32 q0, q2, r12\n"
@@ -287,15 +286,15 @@ static inline void fir_tail8_window(const float32_t *samples,
         "ldr r12, [%[coefficients]], #4\n"
         "vldrw.u32 q2, [%[samples]], #4\n"
         "vfma.f32 q0, q2, r12\n"
-        "vstrw.32 q0, [%[output]]\n"
         "vldrw.u32 q2, [%[samples], #12]\n"
         "vfma.f32 q1, q2, r12\n"
-        "vpst\n"
-        "vstrwt.32 q1, [%[output], #16]\n"
-        "vmsr p0, %[saved]\n"
-        : [saved] "=&r" (saved_predicate), [samples] "+&r" (samples), [coefficients] "+&r" (coefficients)
-        : [output] "r" (output), [taps] "r" (taps - 2U), [tail] "r" (length - 4U)
-        : "q0", "q1", "q2", "r12", "lr", "cc", "memory");
+        : "=&w" (sum0), "=&w" (sum1), [samples] "+&r" (samples), [coefficients] "+&r" (coefficients)
+        : [taps] "r" (taps - 2U)
+        : "q2", "r12", "lr", "cc", "memory");
+    /* The asm does not touch P0. Expose the results so the compiler owns
+     * the final predicate and can consume it without a save/restore pair. */
+    vstrwq_f32(output,sum0);
+    vstrwq_p_f32(output+4U,sum1,vctp32q(length-4U));
 }
 
 static inline void fir_tile16(const float32_t *samples,

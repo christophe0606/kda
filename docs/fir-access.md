@@ -2,7 +2,7 @@
 
 ## Current linear-window candidate
 
-Candidate `fir-fixed-boundary-v1` uses exactly N public/prepared coefficients and N+127
+Candidate `fir-short-output-v1` uses exactly N public/prepared coefficients and N+127
 work-window floats. Instance/state ABI sizes are16/8 bytes; state.next is the
 history start in [0,128] for N>32, zero for N<=32. Buffers are disjoint and naturally aligned. B must form a valid
 representable float object. No comparator instructions were inspected.
@@ -35,7 +35,7 @@ remaining B>8 path can load the complete boundary without overread. All possible
 owned helper sections are explicit residency roots; cross-reference closure
 alone would miss the initialized indirect branch. Readback includes these roots.
 Frames are init32 plus clear-helper usage, scale8, fixed5/6/7/8=28/32/36/40;
-tiny2/3/4=16/28/36, small28, small7/8=20/20, short36, medium88, medium_window56 and window104.
+tiny2/3/4=16/28/36, small24, small7/8=16/16, short36, medium88, medium_window56 and window104.
 Tiny2/3/4 and small are audited again in
 `runs/fir-r4/window-tail-numerical/changed-disassembly.txt`. Tiny3/4 now use
 predicated source/output vectors for two/three remainders, but retain history
@@ -118,8 +118,22 @@ Coefficient reads are exactly[0..N). The direct suffix uses DLSTP/LETP for B-E
 outputs and shifted source base E-H; its final active sample is source[B-1].
 Retention uses bounded scalar/multiple loads from source[B-H..B) to work[0..H).
 All stack accesses fit the frames above; there are no new runtime calls.
-Host7/7 and target2261/lifecycle pass. MPU controls and timing are pending for this
-successor; the medium-window results above remain the last measured evidence.
+Fixed-boundary host7/7,target2261/lifecycle,MPU6460 and both controls pass. Its
+committed capture1 qualifies323 with15 parity failures; all longN8 cases pass.
+Full28 scaling and opaque readback are archived under fixed-boundary-capture-1.
+
+The short-output successor preserves every input/coefficient/work bound above.
+For B5..7, fir_tail8_window computes two complete vectors into fixed q0/q1
+early-clobber outputs. It clobbers q2,r12,lr,cc,memory and advances only declared
+early-clobber sample/coefficient operands. It never modifies P0. C consumes the
+two outputs immediately, storing four words and B-4 predicated words; no call
+occurs between production and consumption. AC6 emits VCTP/VPST only for that
+last store, with no VMRS/VMSR predicate traffic. Generic small retains exactly H
+words with DLSTP/LETP; small7/8 retain their already bounded rounded copies.
+Full changed small/small7/small8 assembly is audited in short-output-numerical;
+frames24/16/16 include all spills, no runtime calls. Isolated GNU14.3.1 compiler
+output also binds the declared accumulators to q0/q1 and emits bounded stores.
+Host7/7 and target2261/lifecycle pass; fresh MPU and PMU remain pending.
 
 | Path | Access bounds and emitted implementation |
 |---|---|
