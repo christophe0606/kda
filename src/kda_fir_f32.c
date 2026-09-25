@@ -98,32 +98,6 @@ KDA_INLINE static void fir_tiny4_tail(float32_t *__restrict history,
     if (length == 3U) { history[2] = source[0]; }
     else { memcpy(history+2,&previous,4); }
 }
-KDA_INLINE static void fir_tiny4_last4(float32_t *__restrict history,
-    const float32_t *__restrict source, float32_t *__restrict output,
-    float32_t b0, float32_t b1, float32_t b2, float32_t b3)
-{
-    uint32_t c0,c1,c2,c3;
-    memcpy(&c0,&b0,4); memcpy(&c1,&b1,4);
-    memcpy(&c2,&b2,4); memcpy(&c3,&b3,4);
-    /* Reuse one load register to keep retention from extending vector
-     * lifetimes into callee-saved registers. */
-    __asm volatile(
-        "vldrw.u32 q0, [%[source], #-4]\n"
-        "vmul.f32 q0, q0, %[b0]\n"
-        "vldrw.u32 q1, [%[source], #-8]\n"
-        "vfma.f32 q0, q1, %[b1]\n"
-        "vldrw.u32 q1, [%[source], #-12]\n"
-        "vfma.f32 q0, q1, %[b2]\n"
-        "vldrw.u32 q1, [%[source], #-16]\n"
-        "vfma.f32 q0, q1, %[b3]\n"
-        "vstrw.32 q0, [%[output], #-4]\n"
-        : : [source] "r" (source), [output] "r" (output),
-            [b0] "r" (c0), [b1] "r" (c1), [b2] "r" (c2), [b3] "r" (c3)
-        : "q0", "q1", "memory");
-    history[0] = source[2];
-    history[1] = source[1];
-    history[2] = source[0];
-}
 #endif
 
 KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
@@ -156,8 +130,7 @@ KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
         vstrwq_f32(pDst,sum);
         pSrc += 4; pDst += 4; blockSize -= 4;
     }
-    /* Favor the complete-vector exit in the four-tap tail dispatcher. */
-    if (count == 4U ? __builtin_expect(blockSize == 0U,1) : blockSize == 0U) {
+    if (blockSize == 0U) {
         memcpy(history,&c0,4);
         if (count >= 3U) { memcpy(history+1,&c1,4); }
         if (count == 4U) { memcpy(history+2,&c2,4); }
@@ -168,11 +141,7 @@ KDA_INLINE static void fir_tiny(const kda_fir_instance_f32 *S,
         if (blockSize == 2U) {
             fir_tiny4_tail(history,pSrc,pDst,2U,active,c0,c1,c2,b0,b1,b2,b3);
         } else {
-            /* The four-tap dispatcher handles B2/B3 separately. A three-
-             * sample remainder here follows at least one complete vector.
-             * Recompute its final output with the three remaining outputs:
-             * all four windows are inside the current public input block. */
-            fir_tiny4_last4(history,pSrc,pDst,b0,b1,b2,b3);
+            fir_tiny4_tail(history,pSrc,pDst,3U,active,c0,c1,c2,b0,b1,b2,b3);
         }
         return;
     }
@@ -877,11 +846,109 @@ KDA_NOINLINE void fir_tiny4_short(const kda_fir_instance_f32 *S,
 #endif
 }
 
+#if KDA_FIR_MVE
+_Static_assert(offsetof(kda_fir_instance_f32, prepared) == 4 &&
+               offsetof(kda_fir_instance_f32, state) == 8 &&
+               offsetof(kda_fir_state_f32, history) == 0,
+               "Four-tap assembly requires the target instance offsets");
+
+/* The dispatcher supplies B=1 or B>=4. r4..r7 hold b3..b0, and r8..r10
+ * hold newest-to-oldest history. No coefficient transfers inside the loop.
+ * Only caller-saved q0..q2 are used; the vector path has a 32-byte frame. */
+__attribute__((naked,noinline)) void fir_tiny4_long(const kda_fir_instance_f32 *S,
+    const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
+{
+    __asm volatile(
+        "cmp r3, #1\n"
+        "bne 1f\n"
+        /* One sample needs no vector predicate or saved core registers. */
+        "ldr r3, [r0, #4]\n"
+        "ldr r0, [r0, #8]\n"
+        "ldr r0, [r0]\n"
+        "vldr s0, [r3, #8]\n"
+        "vldr s2, [r0]\n"
+        "vmul.f32 s0, s0, s2\n"
+        "vldr s4, [r3, #4]\n"
+        "vldr s6, [r0, #4]\n"
+        "vfma.f32 s0, s4, s6\n"
+        "vldr s4, [r3]\n"
+        "vldr s8, [r0, #8]\n"
+        "vfma.f32 s0, s4, s8\n"
+        "vldr s4, [r1]\n"
+        "vldr s8, [r3, #12]\n"
+        "vfma.f32 s0, s4, s8\n"
+        "vstr s0, [r2]\n"
+        "vstr s4, [r0]\n"
+        "vstr s2, [r0, #4]\n"
+        "vstr s6, [r0, #8]\n"
+        "bx lr\n"
+        "1:\n"
+        "push {r4-r10, lr}\n"
+        "ldr r12, [r0, #8]\n"
+        "ldr r0, [r0, #4]\n"
+        "ldr r12, [r12]\n"
+        "ldm r0, {r4-r7}\n"
+        "ldm r12, {r8-r10}\n"
+        "lsr lr, r3, #2\n"
+        "and r3, r3, #3\n"
+        ".p2align 2\n"
+        "2:\n"
+        "vldrw.u32 q1, [r1], #16\n"
+        "vmul.f32 q0, q1, r7\n"
+        "vshlc q1, r8, #32\n"
+        "vfma.f32 q0, q1, r6\n"
+        "vshlc q1, r9, #32\n"
+        "vfma.f32 q0, q1, r5\n"
+        "vshlc q1, r10, #32\n"
+        "vfma.f32 q0, q1, r4\n"
+        "vstrw.32 q0, [r2], #16\n"
+        "le lr, 2b\n"
+        "cbnz r3, 3f\n"
+        "stm r12, {r8-r10}\n"
+        "pop {r4-r10, pc}\n"
+        "3:\n"
+        /* Inactive lanes never read or write outside the public block.
+         * Copy carries because partial shifts eject inactive lanes. */
+        "mov r0, r8\n"
+        "mov lr, r9\n"
+        "vctp.32 r3\n"
+        "vpst\n"
+        "vldrwt.u32 q1, [r1]\n"
+        "vmul.f32 q0, q1, r7\n"
+        "vshlc q1, r0, #32\n"
+        "vfma.f32 q0, q1, r6\n"
+        "vshlc q1, lr, #32\n"
+        "vfma.f32 q0, q1, r5\n"
+        "vshlc q1, r10, #32\n"
+        "vfma.f32 q0, q1, r4\n"
+        "vpst\n"
+        "vstrwt.32 q0, [r2]\n"
+        "cmp r3, #1\n"
+        "beq 4f\n"
+        "ldrd r0, r2, [r1]\n"
+        "cmp r3, #2\n"
+        "beq 5f\n"
+        "ldr r3, [r1, #8]\n"
+        "strd r3, r2, [r12]\n"
+        "str r0, [r12, #8]\n"
+        "pop {r4-r10, pc}\n"
+        "4:\n"
+        "ldr r0, [r1]\n"
+        "str r0, [r12]\n"
+        "strd r8, r9, [r12, #4]\n"
+        "pop {r4-r10, pc}\n"
+        "5:\n"
+        "strd r2, r0, [r12]\n"
+        "str r8, [r12, #8]\n"
+        "pop {r4-r10, pc}\n");
+}
+#else
 KDA_NOINLINE void fir_tiny4_long(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)
 {
     fir_tiny(S, pSrc, pDst, blockSize, 4U);
 }
+#endif
 
 KDA_NOINLINE void fir_tiny4(const kda_fir_instance_f32 *S,
     const float32_t *pSrc, float32_t *pDst, uint32_t blockSize)

@@ -2,7 +2,19 @@
 
 ## Current linear-window candidate
 
-The current source is the rejected experiment `fir-tiny4-overlap-scheduled-v1`,
+The current experimental candidate is `fir-tiny4-gpr-v1`, parent54b795f.
+Only MVE tiny4_long is replaced: coefficients b3..b0 remain in r4..r7;
+history newest-to-oldest uses r8..r10. A32-byte aligned frame preserves r4..r10
+and LR; q0..q2 are caller-saved. B1 is a stackless scalar path; the unchanged
+dispatcher handles B2/B3. Full vectors use the existing shift identity, while
+VCTP predicates every partial source load/output store. Partial history uses
+explicit valid scalar inputs and saved old carries. No coefficient padding,
+allocation,public order,alignment or API change. Instance offsets are asserted
+at compile time. Host7/7 passes;final owned code audit,target safety and timing
+are pending. Do not treat this unmeasured successor as better than54b795f.
+
+
+The prior source was the rejected experiment `fir-tiny4-overlap-scheduled-v1`,
 measured at commit 87ecc66. Its q0/q1 overlap schedule removes the earlier
 branch table and callee-saved vector use, but introduces extra coefficient
 loads/transfers. Only `fir_tiny4_long` changes in the full 26-function comparison
